@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/browser';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   ArrowLeft,
@@ -29,6 +30,7 @@ import {
   WifiOff,
   CheckCheck,
   Check,
+  X,
 } from 'lucide-react';
 import {
   CONNECTION_STATES,
@@ -45,9 +47,11 @@ import {
   setPersistedState,
 } from './lib/storage';
 
-/* ────────────────────────────────────────────────
+const DEBUG_CONNECTIONS_VIEW = import.meta.env.VITE_DEBUG_CONNECTIONS === '1';
+
+/* ������������������������������������������������������������������������������������������������
    Constants
-   ──────────────────────────────────────────────── */
+   ������������������������������������������������������������������������������������������������ */
 const MESSAGE_STATUS = {
   SENDING: 'sending',
   SENT: 'sent',
@@ -93,9 +97,9 @@ const relTime = (ts) => {
   return formatDate(ts);
 };
 
-/* ────────────────────────────────────────────────
+/* ������������������������������������������������������������������������������������������������
    SVG Icons (inline for mobile feel)
-   ──────────────────────────────────────────────── */
+   ������������������������������������������������������������������������������������������������ */
 const FingerprintIcon = ({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4" />
@@ -107,9 +111,9 @@ const FingerprintIcon = ({ className }) => (
   </svg>
 );
 
-/* ────────────────────────────────────────────────
+/* ������������������������������������������������������������������������������������������������
    Main App
-   ──────────────────────────────────────────────── */
+   ������������������������������������������������������������������������������������������������ */
 function App() {
   const [profile, setProfile] = useState(null);
   const [peers, setPeers] = useState([]);
@@ -133,6 +137,8 @@ function App() {
   const [peerNameInput, setPeerNameInput] = useState('');
   const [manualSignal, setManualSignal] = useState('');
   const [generatedSignal, setGeneratedSignal] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState('');
 
   const [errorText, setErrorText] = useState('');
   const managerRef = useRef(null);
@@ -140,8 +146,13 @@ function App() {
   const messagesEndRef = useRef(null);
   const searchInputRef = useRef(null);
   const restoreInputRef = useRef(null);
+  const scannerVideoRef = useRef(null);
+  const scannerReaderRef = useRef(null);
+  const scannerControlsRef = useRef(null);
+  const scannerHandlingRef = useRef(false);
 
   useEffect(() => { activePeerRef.current = activePeerId; }, [activePeerId]);
+  useEffect(() => { document.title = 'Veil'; }, []);
 
   // Initial load: IndexedDB first, then legacy localStorage fallback.
   useEffect(() => {
@@ -198,6 +209,27 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messagesByPeer, activePeerId]);
+
+  const stopQrScanner = () => {
+    scannerControlsRef.current?.stop?.();
+    scannerControlsRef.current = null;
+
+    if (scannerVideoRef.current?.srcObject) {
+      scannerVideoRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      scannerVideoRef.current.srcObject = null;
+    }
+
+    scannerReaderRef.current?.reset?.();
+    scannerReaderRef.current = null;
+    scannerHandlingRef.current = false;
+  };
+
+  const closeQrScanner = () => {
+    setScannerOpen(false);
+    stopQrScanner();
+  };
+
+  useEffect(() => () => stopQrScanner(), []);
 
   const ensureManager = () => {
     if (managerRef.current) return managerRef.current;
@@ -325,29 +357,125 @@ function App() {
     } catch (e) { setErrorText(e.message); }
   };
 
+  const processSignalPayload = async (rawSignal) => {
+    if (!profile) return;
+
+    const mgr = ensureManager();
+    const signal = fromSignalString(rawSignal);
+
+    if (signal.targetPeerId && signal.targetPeerId !== profile.id) {
+      throw new Error('Signal target mismatch.');
+    }
+
+    if (signal.type === 'offer') {
+      const rpid = signal.peerId;
+      upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
+      const answer = await mgr.createAnswer({
+        offerSignal: signal,
+        localPeerId: profile.id,
+        localIdentity: profile.identityFingerprint
+      });
+      setGeneratedSignal(toSignalString(answer));
+      setPeerIdInput(rpid);
+      setAddPeerTab('mycode');
+      return;
+    }
+
+    if (signal.type === 'answer') {
+      const rpid = signal.peerId;
+      upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
+      await mgr.acceptAnswer({
+        peerId: rpid,
+        answerSignal: signal,
+        localPeerId: profile.id,
+        localIdentity: profile.identityFingerprint
+      });
+      setPeerIdInput(rpid);
+      return;
+    }
+
+    throw new Error('Unknown signal type');
+  };
+
   const handleProcessSignal = async () => {
     if (!profile) return;
     if (!manualSignal.trim()) { setErrorText('Paste signal text first.'); return; }
+
     try {
-      const mgr = ensureManager();
-      const signal = fromSignalString(manualSignal);
-      if (signal.targetPeerId && signal.targetPeerId !== profile.id) throw new Error('Signal target mismatch.');
-      if (signal.type === 'offer') {
-        const rpid = signal.peerId;
-        upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
-        const answer = await mgr.createAnswer({ offerSignal: signal, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
-        setGeneratedSignal(toSignalString(answer));
-        setPeerIdInput(rpid);
-        setAddPeerTab('mycode');
-      } else if (signal.type === 'answer') {
-        const rpid = signal.peerId;
-        upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
-        await mgr.acceptAnswer({ peerId: rpid, answerSignal: signal, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
-        setPeerIdInput(rpid);
-      } else throw new Error('Unknown signal type');
+      await processSignalPayload(manualSignal);
       setErrorText('');
-    } catch (e) { setErrorText(e.message); }
+    } catch (e) {
+      setErrorText(e.message);
+    }
   };
+
+  const openQrScanner = () => {
+    setScannerError('');
+    scannerHandlingRef.current = false;
+    setScannerOpen(true);
+  };
+
+  useEffect(() => {
+    if (!scannerOpen) return undefined;
+
+    let active = true;
+    const reader = new BrowserMultiFormatReader();
+    scannerReaderRef.current = reader;
+
+    const start = async () => {
+      if (!scannerVideoRef.current) {
+        setScannerError('Camera preview is unavailable.');
+        return;
+      }
+
+      try {
+        const controls = await reader.decodeFromVideoDevice(
+          undefined,
+          scannerVideoRef.current,
+          async (result, err) => {
+            if (!active) return;
+
+            if (result && !scannerHandlingRef.current) {
+              scannerHandlingRef.current = true;
+              const scannedText = result.getText();
+
+              try {
+                await processSignalPayload(scannedText);
+                setManualSignal(scannedText);
+                setErrorText('');
+                setScannerError('');
+                closeQrScanner();
+              } catch (scanError) {
+                setScannerError(scanError?.message || 'Invalid QR payload');
+                scannerHandlingRef.current = false;
+              }
+              return;
+            }
+
+            if (err && err.name !== 'NotFoundException' && !scannerHandlingRef.current) {
+              setScannerError('Unable to read QR code. Keep the code inside frame.');
+            }
+          }
+        );
+
+        if (!active) {
+          controls.stop();
+          return;
+        }
+
+        scannerControlsRef.current = controls;
+      } catch {
+        setScannerError('Camera access failed. Check browser camera permission.');
+      }
+    };
+
+    start();
+
+    return () => {
+      active = false;
+      stopQrScanner();
+    };
+  }, [scannerOpen]);
 
   const handleGenerateReconnect = async () => {
     if (!profile || !activePeerId) return;
@@ -417,7 +545,13 @@ function App() {
       }
 
       if (event.key === 'Escape') {
-        if (['chat', 'addpeer', 'settings', 'nodes'].includes(screen)) {
+        if (scannerOpen) {
+          event.preventDefault();
+          closeQrScanner();
+          return;
+        }
+
+        if (['chat', 'addpeer', 'settings', 'connections'].includes(screen)) {
           event.preventDefault();
           setActiveTab('chats');
           setScreen('contacts');
@@ -441,7 +575,7 @@ function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [compose, screen, sendMessage]);
+  }, [compose, screen, scannerOpen, sendMessage]);
 
   const getConnState = (peerId) => connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED;
   const isConnected = (peerId) => getConnState(peerId) === CONNECTION_STATES.CONNECTED;
@@ -450,7 +584,7 @@ function App() {
   const getUnreadCount = (peerId) =>
     (messagesByPeer[peerId] || []).filter((m) => m.direction === 'incoming' && m.status !== MESSAGE_STATUS.READ).length;
 
-  /* ─── Render: Onboarding ────────────────────── */
+  /* ������ Render: Onboarding �������������������������������������������� */
   const renderOnboarding = () => (
     <section className="onboarding-screen" data-testid="onboarding-screen">
       {/* Header */}
@@ -529,7 +663,7 @@ function App() {
     </section>
   );
 
-  /* ─── Render: Peer List Item ────────────────── */
+  /* ������ Render: Peer List Item ������������������������������������ */
   const renderPeerItem = (peer) => {
     const state = getConnState(peer.id);
     const unread = getUnreadCount(peer.id);
@@ -572,13 +706,13 @@ function App() {
     );
   };
 
-  /* ─── Render: Contacts Screen ───────────────── */
+  /* ������ Render: Contacts Screen ���������������������������������� */
   const renderContacts = () => (
     <section className="contacts-screen" data-testid="contacts-screen">
       <div className="contacts-header">
         <div className="contacts-title-row">
           <div>
-            <h1 className="contacts-title">Chats</h1>
+            <h1 className="contacts-title">Veil</h1>
             <div className="contacts-id">
               <span className="contacts-id-dot" />
               id: {shortId(profile?.id)}
@@ -635,7 +769,7 @@ function App() {
     </section>
   );
 
-  /* ─── Render: Chat Screen ───────────────────── */
+  /* ������ Render: Chat Screen ������������������������������������������ */
   const renderChat = () => {
     const peer = activePeer;
     if (!peer) return null;
@@ -755,7 +889,7 @@ function App() {
     );
   };
 
-  /* ─── Render: Add Peer Screen ───────────────── */
+  /* ������ Render: Add Peer Screen ���������������������������������� */
   const renderAddPeer = () => (
     <section className="add-peer-screen" data-testid="add-peer-screen">
       <div className="add-peer-header">
@@ -842,6 +976,10 @@ function App() {
           </div>
         ) : (
           <div className="scan-section">
+            <button className="scan-submit-btn" onClick={openQrScanner}>
+              Scan QR Code
+            </button>
+
             <span className="scan-field-label">Target Peer ID</span>
             <input
               className="scan-input"
@@ -867,7 +1005,7 @@ function App() {
               className="scan-textarea"
               value={manualSignal}
               onChange={(e) => setManualSignal(e.target.value)}
-              placeholder="p2pmsg://..."
+              placeholder="VEIL1:..."
             />
 
             <button className="scan-secondary-btn" onClick={handleProcessSignal}>
@@ -879,22 +1017,21 @@ function App() {
     </section>
   );
 
-  /* ─── Render: Nodes Screen ──────────────────── */
-  const renderNodes = () => (
+  /* ������ Render: Nodes Screen ���������������������������������������� */
+  const renderConnections = () => (
     <section className="nodes-screen">
       <div className="nodes-header">
-        <h1 className="nodes-title">Nodes</h1>
-        <p className="nodes-subtitle">Active P2P connections and their status</p>
+        <h1 className="nodes-title">Connections</h1>
+        <p className="nodes-subtitle">Active P2P peers and connection status</p>
       </div>
 
       {peers.length === 0 ? (
         <div className="nodes-empty">
-          <p>No active nodes. Connect to a peer to see nodes here.</p>
+          <p>No active connections. Add a peer to start direct messaging.</p>
         </div>
       ) : (
         <div className="nodes-list">
           {peers.map((peer) => {
-            const st = getConnState(peer.id);
             const cls = isConnected(peer.id) ? 'connected' : isConnecting(peer.id) ? 'connecting' : 'disconnected';
             const label = isConnected(peer.id) ? 'Connected' : isConnecting(peer.id) ? 'Connecting' : 'Offline';
             return (
@@ -913,7 +1050,7 @@ function App() {
     </section>
   );
 
-  /* ─── Render: Settings Screen ───────────────── */
+  /* ������ Render: Settings Screen ���������������������������������� */
   const renderSettings = () => (
     <section className="settings-screen">
       <div className="settings-header">
@@ -969,13 +1106,15 @@ function App() {
     </section>
   );
 
-  /* ─── Render: Bottom Navigation ─────────────── */
+  /* ������ Render: Bottom Navigation ������������������������������ */
   const renderBottomNav = () => {
     if (screen === 'onboarding' || screen === 'chat' || screen === 'addpeer') return null;
 
     const tabs = [
-      { id: 'chats', label: 'Chats', icon: <MessageSquare size={22} />, screen: 'contacts' },
-      { id: 'nodes', label: 'Nodes', icon: <Server size={22} />, screen: 'nodes' },
+      { id: 'chats', label: 'Veil', icon: <MessageSquare size={22} />, screen: 'contacts' },
+      ...(DEBUG_CONNECTIONS_VIEW
+        ? [{ id: 'connections', label: 'Connections', icon: <Server size={22} />, screen: 'connections' }]
+        : []),
       { id: 'keys', label: 'Keys', icon: <Key size={22} />, screen: 'addpeer' },
       { id: 'settings', label: 'Me', icon: <UserCircle size={22} />, screen: 'settings' },
     ];
@@ -996,13 +1135,14 @@ function App() {
     );
   };
 
-  /* ─── Main Render ───────────────────────────── */
+  /* ������ Main Render ���������������������������������������������������������� */
   const renderScreen = () => {
     if (!profile) return renderOnboarding();
     switch (screen) {
       case 'chat': return renderChat();
       case 'addpeer': return renderAddPeer();
-      case 'nodes': return renderNodes();
+      case 'connections':
+        return DEBUG_CONNECTIONS_VIEW ? renderConnections() : renderContacts();
       case 'settings': return renderSettings();
       case 'contacts':
       default: return renderContacts();
@@ -1014,9 +1154,30 @@ function App() {
       {renderScreen()}
       {renderBottomNav()}
 
+      {scannerOpen && (
+        <div className="scanner-modal-overlay" role="dialog" aria-modal="true" aria-label="Scan QR Code">
+          <div className="scanner-modal">
+            <div className="scanner-modal-header">
+              <h3>Scan QR Code</h3>
+              <button className="scanner-close-btn" onClick={closeQrScanner} aria-label="Close scanner">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="scanner-video-wrap">
+              <video ref={scannerVideoRef} className="scanner-video" muted playsInline />
+            </div>
+            <p className="scanner-hint">Align the code inside the frame.</p>
+            {scannerError && <p className="scanner-error">{scannerError}</p>}
+            <button className="scan-secondary-btn" onClick={closeQrScanner}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       {errorText && (
         <div className="error-toast" role="alert" onClick={() => setErrorText('')}>
-          ⚠ {errorText}
+          Warning: {errorText}
         </div>
       )}
     </div>
@@ -1024,3 +1185,5 @@ function App() {
 }
 
 export default App;
+
+

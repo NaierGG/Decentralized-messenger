@@ -34,6 +34,6 @@ describe('web app onboarding flow', () => {
     });
     fireEvent.click(screen.getByRole('button', {name: /Generate Identity/i}));
     expect(await screen.findByTestId('contacts-screen')).toBeInTheDocument();
-    expect(screen.getByRole('heading', {name: /Chats/i})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: /Veil/i})).toBeInTheDocument();
   });
 });
