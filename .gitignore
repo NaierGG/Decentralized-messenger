@@ -1,0 +1,15 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+android/.gradle/
+android/app/build/
+android/build/
+ios/build/
+ios/Pods/
+.bundle/
+.idea/
+.vscode/
+.DS_Store
