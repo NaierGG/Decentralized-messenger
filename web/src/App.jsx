@@ -1,853 +1,879 @@
-﻿import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {QRCodeSVG} from 'qrcode.react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-  Bell,
-  MessageCircle,
+  ArrowLeft,
+  ChevronLeft,
+  Copy,
+  FileText,
+  Fingerprint,
+  HelpCircle,
+  Key,
+  Lock,
+  MessageSquare,
+  MoreVertical,
+  Network,
   Plus,
+  RefreshCw,
   Search,
+  Send,
+  Server,
   Settings,
+  Share2,
   Shield,
-  UserPlus
+  ShieldCheck,
+  Smartphone,
+  User,
+  UserCircle,
+  Users,
+  Wifi,
+  WifiOff,
+  CheckCheck,
+  Check,
 } from 'lucide-react';
 import {
   CONNECTION_STATES,
-  default as WebRtcManager
+  default as WebRtcManager,
 } from './lib/WebRtcManager';
-import {createIdentity, generateId, now} from './lib/crypto';
-import {fromSignalString, toSignalString} from './lib/signal';
-import {cn} from './lib/utils';
-import {Avatar, AvatarFallback} from './components/ui/avatar';
-import {Badge} from './components/ui/badge';
-import {Button} from './components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from './components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from './components/ui/dialog';
-import {Input} from './components/ui/input';
-import {ScrollArea} from './components/ui/scroll-area';
-import {Separator} from './components/ui/separator';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from './components/ui/tabs';
+import { createIdentity, generateId, now } from './lib/crypto';
+import { fromSignalString, toSignalString } from './lib/signal';
 
-const STORAGE_KEY = 'p2p_messenger_web_state_v1';
+/* ────────────────────────────────────────────────
+   Constants
+   ──────────────────────────────────────────────── */
+const STORAGE_KEY = 'veil_state_v2';
 
 const MESSAGE_STATUS = {
   SENDING: 'sending',
   SENT: 'sent',
   DELIVERED: 'delivered',
   READ: 'read',
-  FAILED: 'failed'
+  FAILED: 'failed',
 };
 
-const orderMessages = (messages) =>
-  [...messages].sort((a, b) => a.createdAt - b.createdAt);
+const orderMessages = (msgs) =>
+  [...msgs].sort((a, b) => a.createdAt - b.createdAt);
 
-const shortId = (value) => {
-  if (!value) {
-    return '';
-  }
-  if (value.length <= 14) {
-    return value;
-  }
-  return `${value.slice(0, 6)}...${value.slice(-4)}`;
-};
-
-const stateLabel = (state) => {
-  if (state === CONNECTION_STATES.CONNECTED) {
-    return 'Connected';
-  }
-  if (state === CONNECTION_STATES.CONNECTING) {
-    return 'Connecting';
-  }
-  if (state === CONNECTION_STATES.FAILED) {
-    return 'Failed';
-  }
-  return 'Disconnected';
-};
-
-const toStatusVariant = (state) => {
-  if (state === CONNECTION_STATES.CONNECTED) {
-    return 'success';
-  }
-  if (state === CONNECTION_STATES.CONNECTING) {
-    return 'warning';
-  }
-  if (state === CONNECTION_STATES.FAILED) {
-    return 'destructive';
-  }
-  return 'secondary';
-};
-
-const statusText = (status) => {
-  if (status === MESSAGE_STATUS.SENDING) {
-    return '...';
-  }
-  if (status === MESSAGE_STATUS.SENT) {
-    return 'v';
-  }
-  if (status === MESSAGE_STATUS.READ) {
-    return 'vv';
-  }
-  if (status === MESSAGE_STATUS.FAILED) {
-    return '!';
-  }
-  return '';
+const shortId = (v) => {
+  if (!v) return '';
+  if (v.length <= 14) return v;
+  return `${v.slice(0, 6)}...${v.slice(-4)}`;
 };
 
 const readState = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    return JSON.parse(raw);
-  } catch (error) {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
     return null;
   }
 };
 
+const formatTime = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatDate = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  const diff = Math.floor((today - d) / 86400000);
+  if (diff < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+const relTime = (ts) => {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'Now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return formatTime(ts);
+  return formatDate(ts);
+};
+
+/* ────────────────────────────────────────────────
+   SVG Icons (inline for mobile feel)
+   ──────────────────────────────────────────────── */
+const FingerprintIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4" />
+    <path d="M5 19.5C5.5 18 6 15 6 12c0-3.5 2.5-6 6-6 3.5 0 6 2.5 6 6 0 4-1 6-2 8" />
+    <path d="M12 12v4" />
+    <path d="M12 8c-2 0-3 1.5-3 4 0 3 .5 5 1 7" />
+    <path d="M15 16c.5-2 .5-4 0-6" />
+    <path d="M2 16c1-2 2-4 2-8" />
+  </svg>
+);
+
+/* ────────────────────────────────────────────────
+   Main App
+   ──────────────────────────────────────────────── */
 function App() {
   const persisted = readState();
   const [profile, setProfile] = useState(persisted?.profile || null);
   const [peers, setPeers] = useState(persisted?.peers || []);
-  const [messagesByPeer, setMessagesByPeer] = useState(
-    persisted?.messagesByPeer || {}
-  );
+  const [messagesByPeer, setMessagesByPeer] = useState(persisted?.messagesByPeer || {});
   const [connectionStates, setConnectionStates] = useState({});
+
+  // Navigation
   const [screen, setScreen] = useState(persisted?.profile ? 'contacts' : 'onboarding');
-  const [activeMainTab, setActiveMainTab] = useState('chats');
+  const [activeTab, setActiveTab] = useState('chats');
   const [activePeerId, setActivePeerId] = useState(null);
+
+  // Inputs
   const [name, setName] = useState('');
   const [compose, setCompose] = useState('');
-  const [showAddPeer, setShowAddPeer] = useState(false);
-  const [addPeerTab, setAddPeerTab] = useState('scan');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Add peer
+  const [addPeerTab, setAddPeerTab] = useState('mycode');
   const [peerIdInput, setPeerIdInput] = useState('');
   const [peerNameInput, setPeerNameInput] = useState('');
   const [manualSignal, setManualSignal] = useState('');
   const [generatedSignal, setGeneratedSignal] = useState('');
+
   const [errorText, setErrorText] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
   const managerRef = useRef(null);
   const activePeerRef = useRef(activePeerId);
+  const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    activePeerRef.current = activePeerId;
-  }, [activePeerId]);
+  useEffect(() => { activePeerRef.current = activePeerId; }, [activePeerId]);
 
+  // Persist state
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        profile,
-        peers,
-        messagesByPeer
-      })
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profile, peers, messagesByPeer }));
   }, [profile, peers, messagesByPeer]);
 
+  // Auto-scroll messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messagesByPeer, activePeerId]);
+
   const ensureManager = () => {
-    if (managerRef.current) {
-      return managerRef.current;
-    }
-    if (typeof RTCPeerConnection === 'undefined') {
-      throw new Error('This browser does not support WebRTC RTCPeerConnection.');
-    }
+    if (managerRef.current) return managerRef.current;
+    if (typeof RTCPeerConnection === 'undefined') throw new Error('WebRTC not supported');
     managerRef.current = new WebRtcManager();
     return managerRef.current;
   };
 
   useEffect(() => {
-    if (!profile) {
-      return;
-    }
+    if (!profile) return;
     let manager;
-    try {
-      manager = ensureManager();
-    } catch (error) {
-      setErrorText(error.message);
-      return;
-    }
+    try { manager = ensureManager(); } catch (e) { setErrorText(e.message); return; }
 
     manager.setCallbacks({
       onConnectionState: (peerId, state) => {
-        setConnectionStates((previous) => ({...previous, [peerId]: state}));
+        setConnectionStates((prev) => ({ ...prev, [peerId]: state }));
       },
       onSecureMessage: (peerId, payload) => {
         if (payload.kind === 'chat') {
-          const incomingMessage = {
+          const msg = {
             id: payload.messageId || generateId(),
             peerId,
             direction: 'incoming',
             text: payload.text,
-            status:
-              activePeerRef.current === peerId
-                ? MESSAGE_STATUS.READ
-                : MESSAGE_STATUS.DELIVERED,
-            createdAt: payload.createdAt || now()
+            status: activePeerRef.current === peerId ? MESSAGE_STATUS.READ : MESSAGE_STATUS.DELIVERED,
+            createdAt: payload.createdAt || now(),
           };
-
-          setMessagesByPeer((previous) => {
-            const list = previous[peerId] || [];
-            return {
-              ...previous,
-              [peerId]: orderMessages([...list, incomingMessage])
-            };
-          });
-
-          setPeers((previous) =>
-            previous.map((peer) =>
-              peer.id === peerId
-                ? {
-                    ...peer,
-                    lastMessagePreview: payload.text,
-                    lastMessageAt: incomingMessage.createdAt
-                  }
-                : peer
-            )
-          );
+          setMessagesByPeer((prev) => ({
+            ...prev,
+            [peerId]: orderMessages([...(prev[peerId] || []), msg]),
+          }));
+          setPeers((prev) => prev.map((p) =>
+            p.id === peerId ? { ...p, lastMessagePreview: payload.text, lastMessageAt: msg.createdAt } : p
+          ));
         }
-
         if (payload.kind === 'read') {
-          const readIds = payload.messageIds || [];
-          setMessagesByPeer((previous) => {
-            const list = previous[peerId] || [];
-            return {
-              ...previous,
-              [peerId]: list.map((message) =>
-                readIds.includes(message.id) && message.direction === 'outgoing'
-                  ? {...message, status: MESSAGE_STATUS.READ}
-                  : message
-              )
-            };
-          });
+          const ids = payload.messageIds || [];
+          setMessagesByPeer((prev) => ({
+            ...prev,
+            [peerId]: (prev[peerId] || []).map((m) =>
+              ids.includes(m.id) && m.direction === 'outgoing' ? { ...m, status: MESSAGE_STATUS.READ } : m
+            ),
+          }));
         }
       },
-      onError: (error) => {
-        setErrorText(error.message || 'WebRTC error');
-      }
+      onError: (err) => setErrorText(err.message || 'WebRTC error'),
     });
 
-    return () => {
-      manager.closeAll();
-    };
+    return () => manager.closeAll();
   }, [profile]);
 
-  const activePeer = useMemo(
-    () => peers.find((peer) => peer.id === activePeerId) || null,
-    [activePeerId, peers]
-  );
-  const activeMessages = useMemo(
-    () => (activePeerId ? messagesByPeer[activePeerId] || [] : []),
-    [activePeerId, messagesByPeer]
-  );
+  const activePeer = useMemo(() => peers.find((p) => p.id === activePeerId) || null, [activePeerId, peers]);
+  const activeMessages = useMemo(() => activePeerId ? messagesByPeer[activePeerId] || [] : [], [activePeerId, messagesByPeer]);
 
   const filteredPeers = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return peers;
-    }
-    return peers.filter(
-      (peer) =>
-        peer.id.toLowerCase().includes(query) ||
-        (peer.identity || '').toLowerCase().includes(query) ||
-        (peer.name || '').toLowerCase().includes(query)
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return peers;
+    return peers.filter((p) =>
+      p.id.toLowerCase().includes(q) ||
+      (p.name || '').toLowerCase().includes(q)
     );
   }, [peers, searchQuery]);
 
+  const pinnedPeers = useMemo(() => filteredPeers.filter((p) => p.pinned), [filteredPeers]);
+  const recentPeers = useMemo(() => filteredPeers.filter((p) => !p.pinned), [filteredPeers]);
+
   const upsertPeer = (patch) => {
-    setPeers((previous) => {
-      const index = previous.findIndex((peer) => peer.id === patch.id);
-      if (index === -1) {
-        return [
-          ...previous,
-          {
-            id: patch.id,
-            name: patch.name || `Peer ${patch.id.slice(0, 6)}`,
-            lastMessagePreview: '',
-            lastMessageAt: 0
-          }
-        ];
-      }
-      const copy = [...previous];
-      copy[index] = {...copy[index], ...patch};
+    setPeers((prev) => {
+      const idx = prev.findIndex((p) => p.id === patch.id);
+      if (idx === -1) return [...prev, { id: patch.id, name: patch.name || `Peer ${patch.id.slice(0, 6)}`, lastMessagePreview: '', lastMessageAt: 0, pinned: false }];
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], ...patch };
       return copy;
     });
   };
 
   const createProfile = async () => {
     const trimmed = name.trim();
-    if (!trimmed) {
-      setErrorText('Display name is required.');
-      return;
-    }
+    if (!trimmed) { setErrorText('Display name is required.'); return; }
     try {
       const identity = await createIdentity();
-      const created = {
-        id: generateId(),
-        name: trimmed,
-        identityFingerprint: identity.publicFingerprint,
-        createdAt: now()
-      };
-      setProfile(created);
+      setProfile({ id: generateId(), name: trimmed, identityFingerprint: identity.publicFingerprint, createdAt: now() });
       setScreen('contacts');
-      setActiveMainTab('chats');
+      setActiveTab('chats');
       setErrorText('');
-    } catch (error) {
-      setErrorText(error.message || 'Failed to create profile');
-    }
+    } catch (e) { setErrorText(e.message || 'Failed to create profile'); }
   };
 
   const sendMessage = async () => {
-    if (!profile || !activePeerId || !compose.trim()) {
-      return;
-    }
+    if (!profile || !activePeerId || !compose.trim()) return;
     const text = compose.trim();
     setCompose('');
     const messageId = generateId();
+    const localMsg = { id: messageId, peerId: activePeerId, direction: 'outgoing', text, status: MESSAGE_STATUS.SENDING, createdAt: now() };
 
-    const localMessage = {
-      id: messageId,
-      peerId: activePeerId,
-      direction: 'outgoing',
-      text,
-      status: MESSAGE_STATUS.SENDING,
-      createdAt: now()
-    };
-
-    setMessagesByPeer((previous) => {
-      const list = previous[activePeerId] || [];
-      return {
-        ...previous,
-        [activePeerId]: orderMessages([...list, localMessage])
-      };
-    });
-
-    setPeers((previous) =>
-      previous.map((peer) =>
-        peer.id === activePeerId
-          ? {...peer, lastMessagePreview: text, lastMessageAt: localMessage.createdAt}
-          : peer
-      )
-    );
+    setMessagesByPeer((prev) => ({ ...prev, [activePeerId]: orderMessages([...(prev[activePeerId] || []), localMsg]) }));
+    setPeers((prev) => prev.map((p) => p.id === activePeerId ? { ...p, lastMessagePreview: text, lastMessageAt: localMsg.createdAt } : p));
 
     try {
-      const manager = ensureManager();
-      await manager.sendSecureMessage(
-        activePeerId,
-        {
-          kind: 'chat',
-          messageId,
-          text,
-          createdAt: localMessage.createdAt
-        },
-        profile.id
-      );
-      setMessagesByPeer((previous) => {
-        const list = previous[activePeerId] || [];
-        return {
-          ...previous,
-          [activePeerId]: list.map((message) =>
-            message.id === messageId ? {...message, status: MESSAGE_STATUS.SENT} : message
-          )
-        };
-      });
-    } catch (error) {
-      setMessagesByPeer((previous) => {
-        const list = previous[activePeerId] || [];
-        return {
-          ...previous,
-          [activePeerId]: list.map((message) =>
-            message.id === messageId ? {...message, status: MESSAGE_STATUS.FAILED} : message
-          )
-        };
-      });
-      setErrorText(error.message);
+      const mgr = ensureManager();
+      await mgr.sendSecureMessage(activePeerId, { kind: 'chat', messageId, text, createdAt: localMsg.createdAt }, profile.id);
+      setMessagesByPeer((prev) => ({ ...prev, [activePeerId]: (prev[activePeerId] || []).map((m) => m.id === messageId ? { ...m, status: MESSAGE_STATUS.SENT } : m) }));
+    } catch (e) {
+      setMessagesByPeer((prev) => ({ ...prev, [activePeerId]: (prev[activePeerId] || []).map((m) => m.id === messageId ? { ...m, status: MESSAGE_STATUS.FAILED } : m) }));
+      setErrorText(e.message);
     }
   };
 
   const openChat = (peerId) => {
     setActivePeerId(peerId);
-    setActiveMainTab('chats');
     setScreen('chat');
   };
 
   const handleGenerateOffer = async () => {
-    if (!profile) {
-      return;
-    }
-    const normalizedPeerId = peerIdInput.trim();
-    if (!normalizedPeerId) {
-      setErrorText('Target peer ID is required.');
-      return;
-    }
-
+    if (!profile) return;
+    const pid = peerIdInput.trim();
+    if (!pid) { setErrorText('Target peer ID is required.'); return; }
     try {
-      const manager = ensureManager();
-      upsertPeer({
-        id: normalizedPeerId,
-        name: peerNameInput.trim() || `Peer ${normalizedPeerId.slice(0, 6)}`
-      });
-      const offer = await manager.createOffer({
-        peerId: normalizedPeerId,
-        localPeerId: profile.id,
-        localIdentity: profile.identityFingerprint
-      });
+      const mgr = ensureManager();
+      upsertPeer({ id: pid, name: peerNameInput.trim() || `Peer ${pid.slice(0, 6)}` });
+      const offer = await mgr.createOffer({ peerId: pid, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
       setGeneratedSignal(toSignalString(offer));
       setErrorText('');
-      setAddPeerTab('myid');
-    } catch (error) {
-      setErrorText(error.message);
-    }
+      setAddPeerTab('mycode');
+    } catch (e) { setErrorText(e.message); }
   };
 
   const handleProcessSignal = async () => {
-    if (!profile) {
-      return;
-    }
-    if (!manualSignal.trim()) {
-      setErrorText('Paste signal text first.');
-      return;
-    }
-
+    if (!profile) return;
+    if (!manualSignal.trim()) { setErrorText('Paste signal text first.'); return; }
     try {
-      const manager = ensureManager();
+      const mgr = ensureManager();
       const signal = fromSignalString(manualSignal);
-
-      if (signal.targetPeerId && signal.targetPeerId !== profile.id) {
-        throw new Error('Signal target does not match this profile.');
-      }
-
+      if (signal.targetPeerId && signal.targetPeerId !== profile.id) throw new Error('Signal target mismatch.');
       if (signal.type === 'offer') {
-        const remotePeerId = signal.peerId;
-        upsertPeer({
-          id: remotePeerId,
-          name: peerNameInput.trim() || `Peer ${remotePeerId.slice(0, 6)}`
-        });
-        const answer = await manager.createAnswer({
-          offerSignal: signal,
-          localPeerId: profile.id,
-          localIdentity: profile.identityFingerprint
-        });
+        const rpid = signal.peerId;
+        upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
+        const answer = await mgr.createAnswer({ offerSignal: signal, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
         setGeneratedSignal(toSignalString(answer));
-        setPeerIdInput(remotePeerId);
-        setAddPeerTab('myid');
+        setPeerIdInput(rpid);
+        setAddPeerTab('mycode');
       } else if (signal.type === 'answer') {
-        const remotePeerId = signal.peerId;
-        upsertPeer({
-          id: remotePeerId,
-          name: peerNameInput.trim() || `Peer ${remotePeerId.slice(0, 6)}`
-        });
-        await manager.acceptAnswer({
-          peerId: remotePeerId,
-          answerSignal: signal,
-          localPeerId: profile.id,
-          localIdentity: profile.identityFingerprint
-        });
-        setPeerIdInput(remotePeerId);
-      } else {
-        throw new Error('Unsupported signal type');
-      }
+        const rpid = signal.peerId;
+        upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
+        await mgr.acceptAnswer({ peerId: rpid, answerSignal: signal, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
+        setPeerIdInput(rpid);
+      } else throw new Error('Unknown signal type');
       setErrorText('');
-    } catch (error) {
-      setErrorText(error.message);
-    }
+    } catch (e) { setErrorText(e.message); }
   };
 
   const handleGenerateReconnect = async () => {
-    if (!profile || !activePeerId) {
-      return;
-    }
+    if (!profile || !activePeerId) return;
     try {
-      const manager = ensureManager();
-      const offer = await manager.createOffer({
-        peerId: activePeerId,
-        localPeerId: profile.id,
-        localIdentity: profile.identityFingerprint,
-        restartIce: true
-      });
+      const mgr = ensureManager();
+      const offer = await mgr.createOffer({ peerId: activePeerId, localPeerId: profile.id, localIdentity: profile.identityFingerprint, restartIce: true });
       setGeneratedSignal(toSignalString(offer));
-      setShowAddPeer(true);
-      setAddPeerTab('myid');
-    } catch (error) {
-      setErrorText(error.message);
-    }
+      setScreen('addpeer');
+      setAddPeerTab('mycode');
+    } catch (e) { setErrorText(e.message); }
   };
 
-  const copyGeneratedSignal = async () => {
-    if (!generatedSignal) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(generatedSignal);
-    } catch (error) {
-      setErrorText('Clipboard write failed.');
-    }
+  const copyToClipboard = async (text) => {
+    try { await navigator.clipboard.writeText(text); } catch { setErrorText('Clipboard write failed.'); }
   };
 
-  const openAddByCode = () => {
-    setAddPeerTab('scan');
-    setShowAddPeer(true);
-  };
+  const getConnState = (peerId) => connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED;
+  const isConnected = (peerId) => getConnState(peerId) === CONNECTION_STATES.CONNECTED;
+  const isConnecting = (peerId) => getConnState(peerId) === CONNECTION_STATES.CONNECTING;
 
-  const openMyQr = () => {
-    setAddPeerTab('myid');
-    setShowAddPeer(true);
-  };
+  const getUnreadCount = (peerId) =>
+    (messagesByPeer[peerId] || []).filter((m) => m.direction === 'incoming' && m.status !== MESSAGE_STATUS.READ).length;
 
-  return (
-    <div className="app-root" data-screen={screen} data-tab={activeMainTab}>
-      {!profile && (
-        <section className="onboarding-screen" data-testid="onboarding-screen">
-          <Card className="onboarding-card">
-            <CardHeader>
-              <Badge variant="secondary" className="onboarding-badge">
-                End-to-end encrypted P2P
-              </Badge>
-              <CardTitle className="onboarding-title">Secure P2P Chat</CardTitle>
-              <CardDescription>
-                Create your local identity and start decentralized messaging.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="onboarding-content">
-              <label className="field-label" htmlFor="display-name">
-                Who are you?
-              </label>
-              <Input
-                id="display-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Choose a display name"
-              />
-              <Button className="onboarding-submit" onClick={createProfile}>
-                Create Profile & Start
-              </Button>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+  /* ─── Render: Onboarding ────────────────────── */
+  const renderOnboarding = () => (
+    <section className="onboarding-screen" data-testid="onboarding-screen">
+      {/* Header */}
+      <div className="onboarding-header">
+        <div className="onboarding-header-left">
+          <ArrowLeft size={20} />
+        </div>
+        <div className="onboarding-status-badge">
+          <span className="onboarding-status-dot" />
+          P2P NODE ACTIVE
+        </div>
+        <button className="onboarding-help-btn" aria-label="Help">?</button>
+      </div>
 
-      {profile && (
-        <div className="app-shell" data-testid="contacts-screen">
-          <div className="app-shell-container">
-            <aside className="sidebar-panel">
-              <Card className="sidebar-header">
-                <div className="sidebar-profile-row">
-                  <Avatar>
-                    <AvatarFallback>{profile.name?.[0]?.toUpperCase() || 'U'}</AvatarFallback>
-                  </Avatar>
-                  <div className="sidebar-profile-meta">
-                    <h2>P2P Messenger</h2>
-                    <p>{shortId(profile.id)}</p>
-                  </div>
-                  <Button variant="ghost" size="icon" aria-label="Notifications">
-                    <Bell size={18} />
-                  </Button>
-                </div>
-                <div className="sidebar-actions">
-                  <Button size="sm" onClick={openAddByCode}>
-                    <UserPlus size={16} />
-                    Add Peer
-                  </Button>
-                </div>
-              </Card>
+      {/* Hero */}
+      <div className="onboarding-hero">
+        <div className="fingerprint-container">
+          <div className="fingerprint-ring" />
+          <div className="fingerprint-inner-ring" />
+          <FingerprintIcon className="fingerprint-icon" />
+        </div>
+        <h1 className="onboarding-title">Secure Local Identity</h1>
+        <p className="onboarding-subtitle">
+          Your identity is a cryptographic key generated right here on your device. No servers. Total privacy.
+        </p>
+      </div>
 
-              <Card className="sidebar-search-card">
-                <div className="search-input-wrap">
-                  <Search size={16} />
-                  <Input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search peers..."
-                  />
-                </div>
-              </Card>
+      {/* Form */}
+      <div className="onboarding-form">
+        <span className="onboarding-field-label">Choose a Display Name</span>
+        <div className="onboarding-input-wrap">
+          <User size={20} />
+          <input
+            id="display-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Alice"
+            onKeyDown={(e) => e.key === 'Enter' && createProfile()}
+          />
+        </div>
 
-              <Separator />
-
-              <ScrollArea className="sidebar-scroll">
-                <div className="peer-list">
-                  {filteredPeers.length === 0 ? (
-                    <Card className="peer-empty-card">
-                      <CardContent>
-                        <p>No peers yet</p>
-                        <Button size="sm" variant="secondary" onClick={openAddByCode}>
-                          Create Connection
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    filteredPeers.map((peer) => {
-                      const state =
-                        connectionStates[peer.id] || CONNECTION_STATES.DISCONNECTED;
-                      const unread = (messagesByPeer[peer.id] || []).filter(
-                        (message) =>
-                          message.direction === 'incoming' &&
-                          message.status !== MESSAGE_STATUS.READ
-                      ).length;
-
-                      return (
-                        <button
-                          key={peer.id}
-                          className={cn(
-                            'peer-list-item',
-                            activePeerId === peer.id && 'peer-list-item-active'
-                          )}
-                          onClick={() => openChat(peer.id)}>
-                          <Avatar>
-                            <AvatarFallback>
-                              {(peer.name || 'P')[0].toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="peer-item-content">
-                            <div className="peer-item-head">
-                              <strong>{peer.name}</strong>
-                              <Badge variant={toStatusVariant(state)}>
-                                {stateLabel(state)}
-                              </Badge>
-                            </div>
-                            <div className="peer-item-sub">
-                              <span>{peer.lastMessagePreview || 'No messages yet'}</span>
-                              {unread > 0 && <Badge>{unread}</Badge>}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </ScrollArea>
-            </aside>
-
-            <main className="main-panel">
-              {activeMainTab === 'settings' ? (
-                <Card className="settings-card">
-                  <CardHeader>
-                    <CardTitle>Settings</CardTitle>
-                    <CardDescription>
-                      Profile and app preferences.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="settings-content">
-                    <div className="setting-row">
-                      <span>Display name</span>
-                      <strong>{profile.name}</strong>
-                    </div>
-                    <div className="setting-row">
-                      <span>Fingerprint</span>
-                      <strong>{profile.identityFingerprint}</strong>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : activePeer ? (
-                <Card className="chat-panel">
-                  <div className="chat-panel-header">
-                    <div className="chat-panel-title-wrap">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mobile-only"
-                        onClick={() => setScreen('contacts')}>
-                        Back
-                      </Button>
-                      <div>
-                        <h3>{activePeer.name}</h3>
-                        <Badge
-                          variant={toStatusVariant(
-                            connectionStates[activePeer.id] ||
-                              CONNECTION_STATES.DISCONNECTED
-                          )}>
-                          {stateLabel(
-                            connectionStates[activePeer.id] ||
-                              CONNECTION_STATES.DISCONNECTED
-                          )}
-                        </Badge>
-                      </div>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={openAddByCode}>
-                      Connect
-                    </Button>
-                  </div>
-
-                  <Separator />
-
-                  <ScrollArea className="messages-scroll">
-                    <div className="messages-list">
-                      {activeMessages.map((message) => (
-                        <div
-                          key={message.id}
-                          className={cn(
-                            'bubble-row',
-                            message.direction === 'outgoing'
-                              ? 'bubble-row-outgoing'
-                              : 'bubble-row-incoming'
-                          )}>
-                          <div
-                            className={cn(
-                              'bubble',
-                              message.direction === 'outgoing'
-                                ? 'bubble-outgoing'
-                                : 'bubble-incoming'
-                            )}>
-                            {message.text}
-                          </div>
-                          <div className="bubble-meta">
-                            <span>
-                              {new Date(message.createdAt).toLocaleTimeString()}
-                            </span>
-                            {message.direction === 'outgoing' && (
-                              <span>{statusText(message.status)}</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-
-                  {(connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED) !==
-                    CONNECTION_STATES.CONNECTED && (
-                    <div className="reconnect-wrap">
-                      <Badge variant="warning">Connection interrupted</Badge>
-                      <Button size="sm" variant="secondary" onClick={handleGenerateReconnect}>
-                        Generate Reconnect Code
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="compose-row">
-                    <Input
-                      value={compose}
-                      onChange={(event) => setCompose(event.target.value)}
-                      placeholder="Type a message..."
-                    />
-                    <Button onClick={sendMessage}>Send</Button>
-                  </div>
-                </Card>
-              ) : (
-                <Card className="empty-panel">
-                  <CardHeader>
-                    <div className="empty-icon-wrap">
-                      <Shield size={28} />
-                    </div>
-                    <CardTitle>Select a chat</CardTitle>
-                    <CardDescription>
-                      Start a secure conversation by adding a peer.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="empty-actions">
-                    <Button onClick={openAddByCode}>
-                      <Plus size={16} />
-                      Add by Code
-                    </Button>
-                    <Button variant="outline" onClick={openMyQr}>
-                      Show My QR
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </main>
+        {/* Info Card */}
+        <div className="onboarding-info-card">
+          <div className="onboarding-info-icon">i</div>
+          <div className="onboarding-info-content">
+            <h4>Local Key Generation</h4>
+            <p>
+              We are generating a unique cryptographic key pair. Your private key never leaves this device. This name is just for your contacts to recognize you.
+            </p>
           </div>
+        </div>
 
-          <div className="mobile-bottom-nav">
-            <Tabs
-              value={activeMainTab}
-              onValueChange={(value) => {
-                setActiveMainTab(value);
-                setScreen('contacts');
-              }}>
-              <TabsList className="mobile-tabs-list">
-                <TabsTrigger value="chats" className="mobile-tab-trigger">
-                  <MessageCircle size={16} />
-                  Chats
-                </TabsTrigger>
-                <TabsTrigger value="settings" className="mobile-tab-trigger">
-                  <Settings size={16} />
-                  Settings
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+        {/* CTA */}
+        <div className="onboarding-cta">
+          <button className="onboarding-btn" onClick={createProfile}>
+            <Key size={20} />
+            Generate Identity
+          </button>
+
+          <div className="onboarding-badges">
+            <div className="trust-badge">
+              <Lock className="trust-badge-icon" />
+              <span className="trust-badge-label">Encrypted</span>
+            </div>
+            <div className="trust-badge">
+              <WifiOff className="trust-badge-icon" />
+              <span className="trust-badge-label">No Servers</span>
+            </div>
+            <div className="trust-badge">
+              <Smartphone className="trust-badge-icon" />
+              <span className="trust-badge-label">Local Only</span>
+            </div>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+
+  /* ─── Render: Peer List Item ────────────────── */
+  const renderPeerItem = (peer) => {
+    const state = getConnState(peer.id);
+    const unread = getUnreadCount(peer.id);
+    const online = isConnected(peer.id);
+    const connecting = isConnecting(peer.id);
+    const lastMsg = peer.lastMessagePreview || '';
+    const statusClass = online ? 'online' : connecting ? 'connecting' : 'offline';
+
+    return (
+      <button
+        key={peer.id}
+        className={`peer-item ${activePeerId === peer.id ? 'peer-item-active' : ''}`}
+        onClick={() => openChat(peer.id)}
+      >
+        <div className="peer-avatar">
+          <div className="peer-avatar-img">
+            <span className="peer-avatar-fallback">
+              {(peer.name || 'P')[0].toUpperCase()}
+            </span>
+          </div>
+          <div className={`peer-avatar-status ${statusClass}`} />
+        </div>
+        <div className="peer-item-body">
+          <div className="peer-item-row">
+            <span className="peer-item-name">{peer.name}</span>
+            <span className={`peer-item-time ${connecting ? 'connecting' : ''}`}>
+              {connecting ? 'Connecting...' : peer.lastMessageAt ? relTime(peer.lastMessageAt) : ''}
+            </span>
+          </div>
+          <div className="peer-item-sub-row">
+            <span className="peer-item-id">id: {shortId(peer.id)}</span>
+            {unread > 0 ? (
+              <span className="peer-unread-badge">{unread}</span>
+            ) : lastMsg ? (
+              <span className="peer-read-check"><CheckCheck size={14} /></span>
+            ) : null}
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  /* ─── Render: Contacts Screen ───────────────── */
+  const renderContacts = () => (
+    <section className="contacts-screen" data-testid="contacts-screen">
+      <div className="contacts-header">
+        <div className="contacts-title-row">
+          <div>
+            <h1 className="contacts-title">Chats</h1>
+            <div className="contacts-id">
+              <span className="contacts-id-dot" />
+              id: {shortId(profile?.id)}
+            </div>
+          </div>
+          <button className="contacts-settings-btn" onClick={() => { setActiveTab('settings'); setScreen('settings'); }}>
+            <Settings size={18} />
+            <span className="contacts-settings-dot" />
+          </button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="contacts-search">
+        <Search size={18} />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by ID or Alias..."
+        />
+      </div>
+
+      {/* Peers */}
+      {filteredPeers.length === 0 ? (
+        <div className="contacts-empty">
+          <div className="contacts-empty-icon">
+            <MessageSquare size={28} />
+          </div>
+          <h3>No conversations yet</h3>
+          <p>Tap + to connect with a peer and start a private, encrypted chat.</p>
+        </div>
+      ) : (
+        <div className="contacts-list">
+          {pinnedPeers.length > 0 && (
+            <>
+              <div className="contacts-section-label">Pinned</div>
+              {pinnedPeers.map(renderPeerItem)}
+            </>
+          )}
+          {recentPeers.length > 0 && (
+            <>
+              <div className="contacts-section-label">{pinnedPeers.length > 0 ? 'Recent' : ''}</div>
+              {recentPeers.map(renderPeerItem)}
+            </>
+          )}
         </div>
       )}
 
-      <Dialog open={showAddPeer} onOpenChange={setShowAddPeer}>
-        <DialogContent className="add-peer-dialog">
-          <DialogHeader>
-            <DialogTitle>Add Peer</DialogTitle>
-            <DialogDescription>
-              Exchange one-time connection codes to establish secure P2P sessions.
-            </DialogDescription>
-          </DialogHeader>
+      {/* FAB */}
+      <button className="contacts-fab" onClick={() => setScreen('addpeer')} aria-label="Add Peer">
+        <Plus size={24} />
+      </button>
+    </section>
+  );
 
-          <Tabs value={addPeerTab} onValueChange={setAddPeerTab}>
-            <TabsList className="dialog-tabs-list">
-              <TabsTrigger value="scan">Add by Code</TabsTrigger>
-              <TabsTrigger value="myid">My QR</TabsTrigger>
-            </TabsList>
+  /* ─── Render: Chat Screen ───────────────────── */
+  const renderChat = () => {
+    const peer = activePeer;
+    if (!peer) return null;
+    const connected = isConnected(peer.id);
+    const connState = getConnState(peer.id);
 
-            <TabsContent value="scan" className="dialog-tab-content">
-              <label className="field-label">Target Peer ID</label>
-              <Input
-                value={peerIdInput}
-                onChange={(event) => setPeerIdInput(event.target.value)}
-                placeholder="Peer ID"
-              />
+    return (
+      <section className="chat-screen" data-testid="chat-screen">
+        {/* Header */}
+        <div className="chat-header">
+          <button className="chat-back-btn" onClick={() => { setScreen('contacts'); setActiveTab('chats'); }}>
+            <ChevronLeft size={24} />
+          </button>
+          <div className="chat-header-avatar">
+            <span className="chat-header-avatar-fallback">
+              {(peer.name || 'P')[0].toUpperCase()}
+            </span>
+          </div>
+          <div className="chat-header-info">
+            <div className="chat-header-name">
+              {peer.name}
+              <span className="node-id">(Node-ID: {shortId(peer.id)})</span>
+            </div>
+            <div className="chat-header-e2e">
+              <Lock size={12} />
+              E2E V2 ACTIVE
+            </div>
+          </div>
+          <button className="chat-header-more" aria-label="More options">
+            <MoreVertical size={18} />
+          </button>
+        </div>
 
-              <label className="field-label">Peer Name</label>
-              <Input
-                value={peerNameInput}
-                onChange={(event) => setPeerNameInput(event.target.value)}
-                placeholder="Optional"
-              />
+        {/* Messages */}
+        <div className="chat-messages">
+          <div className="chat-date-separator">
+            <span className="chat-date-label">Today</span>
+          </div>
 
-              <Button onClick={handleGenerateOffer}>Create Connection Code</Button>
-
-              <label className="field-label">Paste Offer/Answer Signal</label>
-              <textarea
-                className="dialog-textarea"
-                value={manualSignal}
-                onChange={(event) => setManualSignal(event.target.value)}
-                placeholder="p2pmsg://..."
-              />
-
-              <Button variant="outline" onClick={handleProcessSignal}>
-                Complete Connection
-              </Button>
-            </TabsContent>
-
-            <TabsContent value="myid" className="dialog-tab-content">
-              <label className="field-label">My Peer ID</label>
-              <Card className="my-id-card">
-                <CardContent>{profile?.id || 'Profile required'}</CardContent>
-              </Card>
-              <div className="qr-box">
-                <QRCodeSVG value={generatedSignal || profile?.id || 'missing'} size={210} />
+          {activeMessages.map((msg) => {
+            const isOut = msg.direction === 'outgoing';
+            return (
+              <div key={msg.id} className={`msg-row ${isOut ? 'msg-row-outgoing' : 'msg-row-incoming'}`}>
+                {!isOut && (
+                  <div className="msg-avatar-row">
+                    <div className="msg-small-avatar">
+                      <span className="msg-small-avatar-fallback">
+                        {(peer.name || 'P')[0].toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <div className={`msg-bubble msg-bubble-incoming`}>
+                        {msg.text}
+                      </div>
+                      <div className="msg-meta">
+                        <span className="msg-meta-time">{formatTime(msg.createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {isOut && (
+                  <>
+                    <div className={`msg-bubble msg-bubble-outgoing`}>
+                      {msg.text}
+                    </div>
+                    <div className="msg-meta">
+                      <span className="msg-meta-time">{formatTime(msg.createdAt)}</span>
+                      {msg.status === MESSAGE_STATUS.SENDING && (
+                        <span className="msg-status-sending">Sending...</span>
+                      )}
+                      {msg.status === MESSAGE_STATUS.SENT && (
+                        <Check size={12} className="msg-status-icon" />
+                      )}
+                      {(msg.status === MESSAGE_STATUS.DELIVERED || msg.status === MESSAGE_STATUS.READ) && (
+                        <CheckCheck size={12} className="msg-status-icon" />
+                      )}
+                      {msg.status === MESSAGE_STATUS.FAILED && (
+                        <span style={{ color: 'var(--red-text)', fontWeight: 600 }}>!</span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
-              {generatedSignal && (
-                <>
-                  <label className="field-label">Generated Signal</label>
-                  <textarea className="dialog-textarea" readOnly value={generatedSignal} />
-                  <Button variant="outline" onClick={copyGeneratedSignal}>
-                    Copy Signal
-                  </Button>
-                </>
-              )}
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
+            );
+          })}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Reconnect Banner */}
+        {!connected && connState !== CONNECTION_STATES.CONNECTING && (
+          <div className="reconnect-banner">
+            <span className="reconnect-label">Connection interrupted</span>
+            <button className="reconnect-btn" onClick={handleGenerateReconnect}>
+              Reconnect
+            </button>
+          </div>
+        )}
+
+        {/* Compose */}
+        <div className="chat-compose">
+          <button className="compose-attach-btn" aria-label="Attach">
+            <Plus size={20} />
+          </button>
+          <div className="compose-input-wrap">
+            <input
+              value={compose}
+              onChange={(e) => setCompose(e.target.value)}
+              placeholder="Encrypted Message..."
+              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            />
+            <Lock size={14} className="compose-lock-icon" />
+          </div>
+          <button className="compose-send-btn" onClick={sendMessage} aria-label="Send">
+            <Send size={20} />
+          </button>
+        </div>
+      </section>
+    );
+  };
+
+  /* ─── Render: Add Peer Screen ───────────────── */
+  const renderAddPeer = () => (
+    <section className="add-peer-screen" data-testid="add-peer-screen">
+      <div className="add-peer-header">
+        <button className="chat-back-btn" onClick={() => setScreen('contacts')}>
+          <ChevronLeft size={24} />
+        </button>
+        <h2 className="add-peer-title">New Connection</h2>
+        <button className="onboarding-help-btn" aria-label="Help">?</button>
+      </div>
+
+      <div className="add-peer-body">
+        {/* Tabs */}
+        <div className="add-peer-tabs">
+          <button
+            className={`add-peer-tab ${addPeerTab === 'mycode' ? 'active' : ''}`}
+            onClick={() => setAddPeerTab('mycode')}
+          >
+            My Code
+          </button>
+          <button
+            className={`add-peer-tab ${addPeerTab === 'scan' ? 'active' : ''}`}
+            onClick={() => setAddPeerTab('scan')}
+          >
+            Scan Peer
+          </button>
+        </div>
+
+        {addPeerTab === 'mycode' ? (
+          <div className="qr-section">
+            <h2 className="qr-section-title">Secure P2P Handshake</h2>
+            <p className="qr-section-subtitle">
+              Ask your peer to scan this code to establish a direct, serverless connection.
+            </p>
+
+            {/* QR Code */}
+            <div className="qr-frame">
+              <div className="qr-frame-bl" />
+              <div className="qr-frame-br" />
+              <div className="qr-inner">
+                <QRCodeSVG value={generatedSignal || profile?.id || 'veil://init'} size={180} />
+              </div>
+            </div>
+
+            {/* ID */}
+            <div className="qr-id-display">
+              <Shield className="qr-id-icon" size={18} />
+              <span className="qr-id-text">ID: {shortId(profile?.id)}</span>
+              <button className="qr-copy-btn" onClick={() => copyToClipboard(profile?.id || '')} aria-label="Copy ID">
+                <Copy size={12} />
+              </button>
+            </div>
+
+            {/* Status */}
+            <div className="qr-status">
+              <span className="qr-status-dot" />
+              <span className="qr-status-text">Waiting for handshake...</span>
+            </div>
+
+            {/* Actions */}
+            <button className="qr-share-btn" onClick={() => copyToClipboard(generatedSignal || profile?.id || '')}>
+              <Share2 size={18} />
+              Share Code as Image
+            </button>
+            <button className="qr-regenerate-btn" onClick={() => { setGeneratedSignal(''); setPeerIdInput(''); }}>
+              <RefreshCw size={16} />
+              Regenerate Offer
+            </button>
+
+            {/* Privacy */}
+            <div className="qr-privacy-notice">
+              <span className="qr-privacy-dot" />
+              Private & Direct: No data touches a central server.
+            </div>
+
+            {generatedSignal && (
+              <div style={{ marginTop: 16 }}>
+                <span className="scan-field-label">Generated Signal</span>
+                <div className="signal-display">{generatedSignal}</div>
+                <button className="scan-secondary-btn" style={{ marginTop: 8 }} onClick={() => copyToClipboard(generatedSignal)}>
+                  Copy Signal
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="scan-section">
+            <span className="scan-field-label">Target Peer ID</span>
+            <input
+              className="scan-input"
+              value={peerIdInput}
+              onChange={(e) => setPeerIdInput(e.target.value)}
+              placeholder="Enter peer ID"
+            />
+
+            <span className="scan-field-label">Peer Name (optional)</span>
+            <input
+              className="scan-input"
+              value={peerNameInput}
+              onChange={(e) => setPeerNameInput(e.target.value)}
+              placeholder="e.g. Alice"
+            />
+
+            <button className="scan-submit-btn" onClick={handleGenerateOffer}>
+              Create Connection Code
+            </button>
+
+            <span className="scan-field-label" style={{ marginTop: 12 }}>Paste Offer/Answer Signal</span>
+            <textarea
+              className="scan-textarea"
+              value={manualSignal}
+              onChange={(e) => setManualSignal(e.target.value)}
+              placeholder="p2pmsg://..."
+            />
+
+            <button className="scan-secondary-btn" onClick={handleProcessSignal}>
+              Complete Connection
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  /* ─── Render: Nodes Screen ──────────────────── */
+  const renderNodes = () => (
+    <section className="nodes-screen">
+      <div className="nodes-header">
+        <h1 className="nodes-title">Nodes</h1>
+        <p className="nodes-subtitle">Active P2P connections and their status</p>
+      </div>
+
+      {peers.length === 0 ? (
+        <div className="nodes-empty">
+          <p>No active nodes. Connect to a peer to see nodes here.</p>
+        </div>
+      ) : (
+        <div className="nodes-list">
+          {peers.map((peer) => {
+            const st = getConnState(peer.id);
+            const cls = isConnected(peer.id) ? 'connected' : isConnecting(peer.id) ? 'connecting' : 'disconnected';
+            const label = isConnected(peer.id) ? 'Connected' : isConnecting(peer.id) ? 'Connecting' : 'Offline';
+            return (
+              <div key={peer.id} className="node-card">
+                <div className={`node-status-indicator ${cls}`} />
+                <div className="node-info">
+                  <div className="node-info-name">{peer.name}</div>
+                  <div className="node-info-id">{shortId(peer.id)}</div>
+                </div>
+                <span className={`node-status-label ${cls}`}>{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
+  /* ─── Render: Settings Screen ───────────────── */
+  const renderSettings = () => (
+    <section className="settings-screen">
+      <div className="settings-header">
+        <h1 className="settings-title">Me</h1>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Profile</div>
+        <div className="settings-item">
+          <span className="settings-item-label">Display Name</span>
+          <span className="settings-item-value">{profile?.name}</span>
+        </div>
+        <div className="settings-item">
+          <span className="settings-item-label">Node ID</span>
+          <span className="settings-item-value">{shortId(profile?.id)}</span>
+        </div>
+        <div className="settings-item">
+          <span className="settings-item-label">Fingerprint</span>
+          <span className="settings-item-value">{shortId(profile?.identityFingerprint)}</span>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Security</div>
+        <div className="settings-item">
+          <span className="settings-item-label">Encryption</span>
+          <span className="settings-item-value" style={{ color: 'var(--green-text)' }}>E2E v2 Active</span>
+        </div>
+        <div className="settings-item">
+          <span className="settings-item-label">Key Storage</span>
+          <span className="settings-item-value">Local Device</span>
+        </div>
+      </div>
+    </section>
+  );
+
+  /* ─── Render: Bottom Navigation ─────────────── */
+  const renderBottomNav = () => {
+    if (screen === 'onboarding' || screen === 'chat' || screen === 'addpeer') return null;
+
+    const tabs = [
+      { id: 'chats', label: 'Chats', icon: <MessageSquare size={22} />, screen: 'contacts' },
+      { id: 'nodes', label: 'Nodes', icon: <Server size={22} />, screen: 'nodes' },
+      { id: 'keys', label: 'Keys', icon: <Key size={22} />, screen: 'addpeer' },
+      { id: 'settings', label: 'Me', icon: <UserCircle size={22} />, screen: 'settings' },
+    ];
+
+    return (
+      <nav className="bottom-nav">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`bottom-nav-item ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => { setActiveTab(tab.id); setScreen(tab.screen); }}
+          >
+            {tab.icon}
+            <span className="bottom-nav-label">{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+    );
+  };
+
+  /* ─── Main Render ───────────────────────────── */
+  const renderScreen = () => {
+    if (!profile) return renderOnboarding();
+    switch (screen) {
+      case 'chat': return renderChat();
+      case 'addpeer': return renderAddPeer();
+      case 'nodes': return renderNodes();
+      case 'settings': return renderSettings();
+      case 'contacts':
+      default: return renderContacts();
+    }
+  };
+
+  return (
+    <div className="app-root">
+      {renderScreen()}
+      {renderBottomNav()}
 
       {errorText && (
-        <div className="error-toast" role="alert">
-          {errorText}
+        <div className="error-toast" role="alert" onClick={() => setErrorText('')}>
+          ⚠ {errorText}
         </div>
       )}
     </div>
