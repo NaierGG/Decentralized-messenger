@@ -5,15 +5,15 @@ import {useTheme} from '../context/ThemeContext';
 
 const metaByState = (state, colors) => {
   if (state === CONNECTION_STATES.CONNECTED) {
-    return {label: 'P2P ¿¬°áµÊ', color: colors.online};
+    return {label: 'ì˜¨ë¼ì¸', color: colors.online};
   }
   if (state === CONNECTION_STATES.CONNECTING) {
-    return {label: '¿¬°á Áß', color: colors.connecting};
+    return {label: 'ì—°ê²° ì¤‘', color: colors.connecting};
   }
   if (state === CONNECTION_STATES.FAILED) {
-    return {label: '¿¬°á ½ÇÆÐ', color: colors.error};
+    return {label: 'ì˜¤ë¥˜', color: colors.error};
   }
-  return {label: '¿¬°á ¾È µÊ', color: colors.offline};
+  return {label: 'ì˜¤í”„ë¼ì¸', color: colors.offline};
 };
 
 const ConnectionStatus = ({state}) => {

@@ -22,12 +22,24 @@ const AppContext = createContext(null);
 const withPeerDefaults = (peer) => ({
   name: 'Unknown peer',
   identity: null,
+  isSelf: false,
   createdAt: now(),
+  disappearingTimerSec: 0,
   ...peer
 });
 
 const orderMessages = (messages) =>
   [...messages].sort((a, b) => a.createdAt - b.createdAt);
+
+const attachmentPreviewText = (attachment) => {
+  if (!attachment) {
+    return '[첨부]';
+  }
+  if (attachment.type === 'image') {
+    return '[이미지]';
+  }
+  return `[파일] ${attachment.name || '첨부 파일'}`;
+};
 
 export const AppProvider = ({children}) => {
   const [ready, setReady] = useState(false);
@@ -35,6 +47,7 @@ export const AppProvider = ({children}) => {
   const [peers, setPeers] = useState([]);
   const [messagesByPeer, setMessagesByPeer] = useState({});
   const [connectionStates, setConnectionStates] = useState({});
+  const [typingStates, setTypingStates] = useState({});
   const [reconnectSignals, setReconnectSignals] = useState({});
   const [networkOnline, setNetworkOnline] = useState(true);
   const [activeChatPeerId, setActiveChatPeerId] = useState(null);
@@ -44,6 +57,14 @@ export const AppProvider = ({children}) => {
   const reconnectSignalsRef = useRef(reconnectSignals);
   const reconnectGeneratingRef = useRef({});
   const reconnectionManagerRef = useRef(new ReconnectionManager());
+
+  const normalizeDisappearingTimer = (seconds) => {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) {
+      return 0;
+    }
+    return Math.floor(value);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -72,7 +93,7 @@ export const AppProvider = ({children}) => {
       }
 
       setProfile(normalizedProfile);
-      setPeers(storedPeers);
+      setPeers(storedPeers.map((peer) => withPeerDefaults(peer)));
       setMessagesByPeer(storedMessages);
       setReady(true);
     };
@@ -95,6 +116,36 @@ export const AppProvider = ({children}) => {
   }, []);
 
   useEffect(() => {
+    if (!profile) {
+      return;
+    }
+
+    setPeers((previous) => {
+      const existingIndex = previous.findIndex((peer) => peer.id === profile.id);
+      if (existingIndex === -1) {
+        return [
+          withPeerDefaults({
+            id: profile.id,
+            name: '나에게 보내기',
+            identity: profile.identityFingerprint || null,
+            isSelf: true,
+            lastMessagePreview: '',
+            lastMessageAt: 0
+          }),
+          ...previous
+        ];
+      }
+
+      const cloned = [...previous];
+      cloned[existingIndex] = withPeerDefaults({
+        ...cloned[existingIndex],
+        isSelf: true
+      });
+      return cloned;
+    });
+  }, [profile]);
+
+  useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
 
@@ -112,6 +163,10 @@ export const AppProvider = ({children}) => {
     webrtc.setCallbacks({
       onSecureMessage: (peerId, payload) => {
         if (payload.kind === 'chat') {
+          const expiresAt =
+            Number.isFinite(payload.expiresAt) && payload.expiresAt > 0
+              ? Number(payload.expiresAt)
+              : null;
           const incomingMessage = {
             id: payload.messageId || generateId(),
             peerId,
@@ -122,7 +177,8 @@ export const AppProvider = ({children}) => {
               activeChatPeerRef.current === peerId
                 ? MESSAGE_STATUS.READ
                 : MESSAGE_STATUS.DELIVERED,
-            createdAt: payload.createdAt || now()
+            createdAt: payload.createdAt || now(),
+            expiresAt
           };
 
           setMessagesByPeer((previous) => {
@@ -160,6 +216,72 @@ export const AppProvider = ({children}) => {
           }
         }
 
+        if (payload.kind === 'attachment') {
+          const expiresAt =
+            Number.isFinite(payload.expiresAt) && payload.expiresAt > 0
+              ? Number(payload.expiresAt)
+              : null;
+          const incomingAttachmentMessage = {
+            id: payload.messageId || generateId(),
+            peerId,
+            senderId: peerId,
+            direction: 'incoming',
+            type: 'attachment',
+            attachment: payload.attachment
+              ? {
+                  type: payload.attachment.type === 'image' ? 'image' : 'file',
+                  url: payload.attachment.url || '',
+                  name: payload.attachment.name || '',
+                  size: payload.attachment.size || null,
+                  mimeType: payload.attachment.mimeType || ''
+                }
+              : null,
+            text: payload.text || '',
+            status:
+              activeChatPeerRef.current === peerId
+                ? MESSAGE_STATUS.READ
+                : MESSAGE_STATUS.DELIVERED,
+            createdAt: payload.createdAt || now(),
+            expiresAt
+          };
+
+          setMessagesByPeer((previous) => {
+            const list = previous[peerId] || [];
+            return {
+              ...previous,
+              [peerId]: orderMessages([...list, incomingAttachmentMessage])
+            };
+          });
+
+          setPeers((previous) =>
+            previous.map((peer) =>
+              peer.id === peerId
+                ? {
+                    ...peer,
+                    lastMessagePreview: attachmentPreviewText(
+                      incomingAttachmentMessage.attachment
+                    ),
+                    lastMessageAt: incomingAttachmentMessage.createdAt
+                  }
+                : peer
+            )
+          );
+
+          if (activeChatPeerRef.current === peerId && profileRef.current) {
+            webrtc
+              .sendSecureMessage(
+                peerId,
+                {
+                  kind: 'read',
+                  messageIds: [incomingAttachmentMessage.id],
+                  readAt: now()
+                },
+                profileRef.current.id
+              )
+              .catch(() => null);
+          }
+        }
+
         if (payload.kind === 'read') {
           const readIds = payload.messageIds || [];
 
@@ -174,6 +296,30 @@ export const AppProvider = ({children}) => {
               )
             };
           });
+        }
+
+        if (payload.kind === 'disappearing_timer') {
+          const nextTimer = normalizeDisappearingTimer(payload.seconds);
+          setPeers((previous) =>
+            previous.map((peer) =>
+              peer.id === peerId
+                ? {
+                    ...peer,
+                    disappearingTimerSec: nextTimer
+                  }
+                : peer
+            )
+          );
+        }
+
+        if (payload.kind === 'typing') {
+          setTypingStates((previous) => ({
+            ...previous,
+            [peerId]: {
+              typing: Boolean(payload.typing),
+              updatedAt: now()
+            }
+          }));
         }
       },
       onConnectionState: (peerId, state) => {
@@ -277,6 +423,65 @@ export const AppProvider = ({children}) => {
     StorageService.saveMessagesByPeer(messagesByPeer);
   }, [messagesByPeer, ready]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const nowTs = now();
+      setTypingStates((previous) => {
+        let changed = false;
+        const next = {};
+
+        Object.entries(previous).forEach(([peerId, state]) => {
+          if (!state?.typing) {
+            next[peerId] = state;
+            return;
+          }
+          if (nowTs - (state.updatedAt || 0) > 9000) {
+            changed = true;
+            next[peerId] = {typing: false, updatedAt: nowTs};
+            return;
+          }
+          next[peerId] = state;
+        });
+
+        return changed ? next : previous;
+      });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const nowTs = now();
+      setMessagesByPeer((previous) => {
+        let changed = false;
+        const next = {};
+
+        Object.entries(previous).forEach(([peerId, messages]) => {
+          const filtered = (messages || []).filter((message) => {
+            if (!message.expiresAt) {
+              return true;
+            }
+            return message.expiresAt > nowTs;
+          });
+
+          if (filtered.length !== (messages || []).length) {
+            changed = true;
+          }
+          next[peerId] = filtered;
+        });
+
+        return changed ? next : previous;
+      });
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [ready]);
+
   const createOrUpdateProfile = useCallback(
     async (name) => {
       const trimmedName = name.trim();
@@ -319,8 +524,11 @@ export const AppProvider = ({children}) => {
       }
       const cloned = [...previous];
       cloned[existingIndex] = {
-        ...cloned[existingIndex],
-        ...peerPatch
+        ...withPeerDefaults(cloned[existingIndex]),
+        ...peerPatch,
+        disappearingTimerSec: normalizeDisappearingTimer(
+          peerPatch.disappearingTimerSec ?? cloned[existingIndex].disappearingTimerSec
+        )
       };
       return cloned;
     });
@@ -346,15 +554,24 @@ export const AppProvider = ({children}) => {
       }
 
       const messageId = generateId();
+      const isSelfChat = peerId === profile.id;
       const localMessage = {
         id: messageId,
         peerId,
         senderId: profile.id,
         direction: 'outgoing',
         text: trimmed,
-        status: MESSAGE_STATUS.SENDING,
-        createdAt: now()
+        status: isSelfChat ? MESSAGE_STATUS.SENT : MESSAGE_STATUS.SENDING,
+        createdAt: now(),
+        expiresAt: null
       };
+
+      const peerTimerSec = normalizeDisappearingTimer(
+        peers.find((peer) => peer.id === peerId)?.disappearingTimerSec || 0
+      );
+      if (peerTimerSec > 0) {
+        localMessage.expiresAt = localMessage.createdAt + peerTimerSec * 1000;
+      }
 
       setMessagesByPeer((previous) => {
         const list = previous[peerId] || [];
@@ -376,6 +593,10 @@ export const AppProvider = ({children}) => {
         )
       );
 
+      if (isSelfChat) {
+        return messageId;
+      }
+
       try {
         await webrtcRef.current.sendSecureMessage(
           peerId,
@@ -383,7 +604,8 @@ export const AppProvider = ({children}) => {
             kind: 'chat',
             messageId,
             text: trimmed,
-            createdAt: localMessage.createdAt
+            createdAt: localMessage.createdAt,
+            expiresAt: localMessage.expiresAt
           },
           profile.id
         );
@@ -395,7 +617,171 @@ export const AppProvider = ({children}) => {
 
       return messageId;
     },
-    [profile, updateOutgoingMessageStatus]
+    [peers, profile, updateOutgoingMessageStatus]
+  );
+
+  const sendAttachmentToPeer = useCallback(
+    async (peerId, attachment, text = '') => {
+      const normalizedPeerId = String(peerId || '').trim();
+      if (!normalizedPeerId || !profile) {
+        return null;
+      }
+      if (!attachment?.url) {
+        throw new Error('Attachment URL is required');
+      }
+
+      const messageId = generateId();
+      const isSelfChat = normalizedPeerId === profile.id;
+      const createdAt = now();
+      const localMessage = {
+        id: messageId,
+        peerId: normalizedPeerId,
+        senderId: profile.id,
+        direction: 'outgoing',
+        type: 'attachment',
+        attachment: {
+          type: attachment.type === 'image' ? 'image' : 'file',
+          url: attachment.url,
+          name: attachment.name || '',
+          size: attachment.size || null,
+          mimeType: attachment.mimeType || ''
+        },
+        text: String(text || ''),
+        status: isSelfChat ? MESSAGE_STATUS.SENT : MESSAGE_STATUS.SENDING,
+        createdAt,
+        expiresAt: null
+      };
+
+      const peerTimerSec = normalizeDisappearingTimer(
+        peers.find((peer) => peer.id === normalizedPeerId)?.disappearingTimerSec || 0
+      );
+      if (peerTimerSec > 0) {
+        localMessage.expiresAt = localMessage.createdAt + peerTimerSec * 1000;
+      }
+
+      setMessagesByPeer((previous) => {
+        const list = previous[normalizedPeerId] || [];
+        return {
+          ...previous,
+          [normalizedPeerId]: orderMessages([...list, localMessage])
+        };
+      });
+
+      setPeers((previous) =>
+        previous.map((peer) =>
+          peer.id === normalizedPeerId
+            ? {
+                ...peer,
+                lastMessagePreview: attachmentPreviewText(localMessage.attachment),
+                lastMessageAt: localMessage.createdAt
+              }
+            : peer
+        )
+      );
+
+      if (isSelfChat) {
+        return messageId;
+      }
+
+      try {
+        await webrtcRef.current.sendSecureMessage(
+          normalizedPeerId,
+          {
+            kind: 'attachment',
+            messageId,
+            attachment: localMessage.attachment,
+            text: localMessage.text,
+            createdAt: localMessage.createdAt,
+            expiresAt: localMessage.expiresAt
+          },
+          profile.id
+        );
+        updateOutgoingMessageStatus(normalizedPeerId, messageId, MESSAGE_STATUS.SENT);
+      } catch (error) {
+        updateOutgoingMessageStatus(normalizedPeerId, messageId, MESSAGE_STATUS.FAILED);
+        throw error;
+      }
+
+      return messageId;
+    },
+    [peers, profile, updateOutgoingMessageStatus]
+  );
+
+  const getDisappearingTimerForPeer = useCallback(
+    (peerId) =>
+      normalizeDisappearingTimer(
+        peers.find((peer) => peer.id === peerId)?.disappearingTimerSec || 0
+      ),
+    [peers]
+  );
+
+  const setPeerDisappearingTimer = useCallback(
+    async (peerId, seconds, options = {}) => {
+      const normalizedPeerId = String(peerId || '').trim();
+      if (!normalizedPeerId) {
+        throw new Error('Peer ID is required');
+      }
+      const nextTimer = normalizeDisappearingTimer(seconds);
+
+      setPeers((previous) =>
+        previous.map((peer) =>
+          peer.id === normalizedPeerId
+            ? {
+                ...peer,
+                disappearingTimerSec: nextTimer
+              }
+            : peer
+        )
+      );
+
+      if (options.sync === false || !profile) {
+        return nextTimer;
+      }
+
+      try {
+        await webrtcRef.current.sendSecureMessage(
+          normalizedPeerId,
+          {
+            kind: 'disappearing_timer',
+            seconds: nextTimer,
+            updatedAt: now()
+          },
+          profile.id
+        );
+      } catch (error) {
+        // Best-effort sync. Local timer still applies.
+      }
+
+      return nextTimer;
+    },
+    [profile]
+  );
+
+  const sendTypingSignal = useCallback(
+    async (peerId, typing) => {
+      if (!profile || !peerId || peerId === profile.id) {
+        return;
+      }
+      try {
+        await webrtcRef.current.sendSecureMessage(
+          peerId,
+          {
+            kind: 'typing',
+            typing: Boolean(typing),
+            sentAt: now()
+          },
+          profile.id
+        );
+      } catch (error) {
+        // Typing indicator is best-effort only.
+      }
+    },
+    [profile]
+  );
+
+  const getPeerTypingState = useCallback(
+    (peerId) => Boolean(typingStates[peerId]?.typing),
+    [typingStates]
   );
 
   const markPeerRead = useCallback(
@@ -538,8 +924,13 @@ export const AppProvider = ({children}) => {
   );
 
   const getPeerConnectionState = useCallback(
-    (peerId) => connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED,
-    [connectionStates]
+    (peerId) => {
+      if (profile && peerId === profile.id) {
+        return CONNECTION_STATES.CONNECTED;
+      }
+      return connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED;
+    },
+    [connectionStates, profile]
   );
 
   const getReconnectSignalForPeer = useCallback(
@@ -572,12 +963,16 @@ export const AppProvider = ({children}) => {
   );
 
   const getUnreadCountForPeer = useCallback(
-    (peerId) =>
-      (messagesByPeer[peerId] || []).filter(
+    (peerId) => {
+      if (profile && peerId === profile.id) {
+        return 0;
+      }
+      return (messagesByPeer[peerId] || []).filter(
         (message) =>
           message.direction === 'incoming' && message.status !== MESSAGE_STATUS.READ
-      ).length,
-    [messagesByPeer]
+      ).length;
+    },
+    [messagesByPeer, profile]
   );
 
   const value = useMemo(
@@ -593,6 +988,7 @@ export const AppProvider = ({children}) => {
       createOrUpdateProfile,
       addOrUpdatePeer,
       sendMessageToPeer,
+      sendAttachmentToPeer,
       markPeerRead,
       createOfferSignal,
       handleScannedSignal,
@@ -601,7 +997,11 @@ export const AppProvider = ({children}) => {
       getPeerConnectionState,
       getReconnectSignalForPeer,
       refreshReconnectSignal,
-      getUnreadCountForPeer
+      getUnreadCountForPeer,
+      getDisappearingTimerForPeer,
+      setPeerDisappearingTimer,
+      sendTypingSignal,
+      getPeerTypingState
     }),
     [
       ready,
@@ -614,6 +1014,7 @@ export const AppProvider = ({children}) => {
       createOrUpdateProfile,
       addOrUpdatePeer,
       sendMessageToPeer,
+      sendAttachmentToPeer,
       markPeerRead,
       createOfferSignal,
       handleScannedSignal,
@@ -622,7 +1023,11 @@ export const AppProvider = ({children}) => {
       getPeerConnectionState,
       getReconnectSignalForPeer,
       refreshReconnectSignal,
-      getUnreadCountForPeer
+      getUnreadCountForPeer,
+      getDisappearingTimerForPeer,
+      setPeerDisappearingTimer,
+      sendTypingSignal,
+      getPeerTypingState
     ]
   );
 

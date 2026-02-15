@@ -1,10 +1,11 @@
-const PREFIX = 'VEIL1:';
+const PRIMARY_PREFIX = 'SESSION1:';
+const LEGACY_PREFIX = 'VEIL1:';
 const REQUIRED_TYPES = new Set(['invite', 'accept', 'reconnect']);
 
 const USER_MESSAGE = {
-  title: 'This QR code is not for Veil',
+  title: 'This QR code is not for Session',
   description:
-    'Check that your peer generated this QR code in Veil, then scan again.',
+    'Check that your peer generated this QR code in Session, then scan again.',
   action: 'Scan again',
 };
 
@@ -74,7 +75,7 @@ export const randomNonce = () => {
 
 export const encodePayload = (payload) => {
   const normalized = validateSchema(payload);
-  return `${PREFIX}${toBase64Url(JSON.stringify(normalized))}`;
+  return `${PRIMARY_PREFIX}${toBase64Url(JSON.stringify(normalized))}`;
 };
 
 export const decodePayload = (rawText) => {
@@ -83,11 +84,14 @@ export const decodePayload = (rawText) => {
   }
 
   const text = rawText.trim();
-  if (!text.startsWith(PREFIX)) {
+  const activePrefix = [PRIMARY_PREFIX, LEGACY_PREFIX].find((prefix) =>
+    text.startsWith(prefix)
+  );
+  if (!activePrefix) {
     throw new PayloadError('bad_prefix', `Invalid prefix: ${text.slice(0, 8)}`);
   }
 
-  const encoded = text.slice(PREFIX.length);
+  const encoded = text.slice(activePrefix.length);
 
   try {
     const decoded = fromBase64Url(encoded);
@@ -136,7 +140,7 @@ export const payloadErrorMessage = () => USER_MESSAGE;
 
 export const logPayloadError = (error, context = '') => {
   console.error(
-    '[VEIL_PAYLOAD_ERROR]',
+    '[SESSION_PAYLOAD_ERROR]',
     context,
     error?.code || error?.message,
     error?.debug || error

@@ -14,12 +14,12 @@ export const spacing = {
   gridUnit: 8,
   component: {
     screenHorizontal: scale.md,
-    screenTop: scale.xl,
+    screenTop: scale.lg + scale.sm,
     sectionGap: scale.lg,
-    cardPadding: scale.md,
-    inputHeight: 44,
-    buttonHeight: 44,
+    cardPadding: scale.sm + scale.xs,
+    inputHeight: 46,
+    buttonHeight: 46,
     iconButtonMin: 44,
-    chipHeight: 36
+    chipHeight: 34
   }
 };

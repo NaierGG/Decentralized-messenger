@@ -15,7 +15,7 @@ const Stack = createStackNavigator();
 const LoadingScreen = () => {
   const {colors, typography} = useTheme();
   return (
-    <View style={[styles.loadingContainer, {backgroundColor: colors.background}]}>
+    <View style={[styles.loadingContainer, {backgroundColor: colors.background}]}> 
       <ActivityIndicator size="large" color={colors.primary} />
       <Text
         style={[
@@ -23,7 +23,7 @@ const LoadingScreen = () => {
           typography.textStyle(typography.size.sm, typography.weight.semibold),
           {color: colors.textSecondary}
         ]}>
-        안전한 메신저를 준비하고 있어요...
+        Session 네트워크를 준비하고 있어요...
       </Text>
     </View>
   );

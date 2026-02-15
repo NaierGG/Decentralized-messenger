@@ -168,7 +168,7 @@ function App() {
 
   useEffect(() => { activePeerRef.current = activePeerId; }, [activePeerId]);
   useEffect(() => { pendingConnectionsRef.current = pendingConnections; }, [pendingConnections]);
-  useEffect(() => { document.title = 'Veil'; }, []);
+  useEffect(() => { document.title = 'Session'; }, []);
 
   const showToast = (message, tone = 'info') => {
     if (toastTimerRef.current) {
@@ -804,7 +804,7 @@ function App() {
     }
   };
 
-  const getQrCanvas = () => document.getElementById('veil-qr-canvas');
+  const getQrCanvas = () => document.getElementById('session-qr-canvas');
 
   const getQrBlob = () =>
     new Promise((resolve, reject) => {
@@ -865,7 +865,7 @@ function App() {
 
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `veil-qr-${Date.now()}.png`;
+      anchor.download = `session-qr-${Date.now()}.png`;
       anchor.click();
       URL.revokeObjectURL(url);
       showToast('이미지 저장됨', 'success');
@@ -878,14 +878,14 @@ function App() {
   const shareQrImage = async () => {
     try {
       const blob = await getQrBlob();
-      const file = new File([blob], 'veil-qr.png', { type: 'image/png' });
+      const file = new File([blob], 'session-qr.png', { type: 'image/png' });
       if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
         showToast("이 브라우저는 이미지 공유를 지원하지 않아요. '이미지로 저장'을 사용해 주세요.", 'info');
         return;
       }
       await navigator.share({
         files: [file],
-        title: 'Veil QR',
+        title: 'Session QR',
       });
       showToast('공유됨', 'success');
     } catch (error) {
@@ -902,7 +902,7 @@ function App() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `veil-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `session-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
       showToast('Backup saved', 'success');
@@ -1116,7 +1116,7 @@ function App() {
       <div className="contacts-header">
         <div className="contacts-title-row">
           <div>
-            <h1 className="contacts-title">Veil</h1>
+            <h1 className="contacts-title">Session</h1>
             <div className="contacts-id">
               <span className="contacts-id-dot" />
               id: {shortId(profile?.id)}
@@ -1195,11 +1195,11 @@ function App() {
           <div className="chat-header-info">
             <div className="chat-header-name">
               {peer.name}
-              <span className="node-id">(Node-ID: {shortId(peer.id)})</span>
+              <span className="node-id">(Session ID: {shortId(peer.id)})</span>
             </div>
             <div className="chat-header-e2e">
               <Lock size={12} />
-              E2E V2 ACTIVE
+              E2E ACTIVE
             </div>
           </div>
           <button className="chat-header-more" aria-label="More options">
@@ -1363,7 +1363,7 @@ function App() {
                     <div className="qr-frame-bl" />
                     <div className="qr-frame-br" />
                     <div className="qr-inner">
-                      <QRCodeCanvas id="veil-qr-canvas" value={generatedSignal} size={180} />
+                      <QRCodeCanvas id="session-qr-canvas" value={generatedSignal} size={180} />
                     </div>
                   </div>
 
@@ -1471,7 +1471,7 @@ function App() {
                         className="scan-textarea"
                         value={manualSignal}
                         onChange={(e) => setManualSignal(e.target.value)}
-                        placeholder="VEIL1: 코드를 붙여넣기"
+                        placeholder="SESSION1: 코드를 붙여넣기"
                       />
                       <button className="scan-secondary-btn" onClick={handleProcessSignal}>
                         코드 확인
@@ -1547,7 +1547,7 @@ function App() {
         <div className="settings-group-label">Security</div>
         <div className="settings-item">
           <span className="settings-item-label">Encryption</span>
-          <span className="settings-item-value" style={{ color: 'var(--green-text)' }}>E2E v2 Active</span>
+          <span className="settings-item-value" style={{ color: 'var(--green-text)' }}>E2E Active</span>
         </div>
         <div className="settings-item">
           <span className="settings-item-label">Key Storage</span>
@@ -1559,10 +1559,10 @@ function App() {
         <div className="settings-group-label">Data</div>
         <div className="settings-actions">
           <button className="settings-action-btn" onClick={backupState}>
-            Backup Data
+            Backup Session Data
           </button>
           <button className="settings-action-btn" onClick={triggerRestore}>
-            Restore Data
+            Restore Session Data
           </button>
           <input
             ref={restoreInputRef}
@@ -1581,7 +1581,7 @@ function App() {
     if (screen === 'onboarding' || screen === 'chat' || screen === 'addpeer') return null;
 
     const tabs = [
-      { id: 'chats', label: 'Veil', icon: <MessageSquare size={22} />, screen: 'contacts' },
+      { id: 'chats', label: 'Session', icon: <MessageSquare size={22} />, screen: 'contacts' },
       ...(DEBUG_CONNECTIONS_VIEW
         ? [{ id: 'connections', label: 'Connections', icon: <Server size={22} />, screen: 'connections' }]
         : []),
@@ -1639,8 +1639,8 @@ function App() {
             <p className="scanner-hint">Align the code inside the frame.</p>
             {scannerError ? (
               <div className="scanner-error">
-                <strong>이 QR 코드는 Veil용이 아니에요</strong>
-                <p>상대가 Veil에서 만든 초대 QR인지 확인하고 다시 스캔해 주세요.</p>
+                <strong>이 QR 코드는 Session용이 아니에요</strong>
+                <p>상대가 Session에서 만든 초대 QR인지 확인하고 다시 스캔해 주세요.</p>
                 <button
                   className="scan-secondary-btn"
                   onClick={() => {
@@ -1673,5 +1673,6 @@ function App() {
 }
 
 export default App;
+
 
 

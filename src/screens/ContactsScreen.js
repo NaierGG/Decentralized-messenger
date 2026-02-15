@@ -15,12 +15,12 @@ import {useTheme} from '../context/ThemeContext';
 
 const stateMeta = (state, colors) => {
   if (state === CONNECTION_STATES.CONNECTED) {
-    return {label: '¿Â¶óÀÎ', color: colors.online};
+    return {label: 'ì˜¨ë¼ì¸', color: colors.online};
   }
   if (state === CONNECTION_STATES.CONNECTING) {
-    return {label: '¿¬°á Áß', color: colors.connecting};
+    return {label: 'ì—°ê²° ì¤‘', color: colors.connecting};
   }
-  return {label: '¿ÀÇÁ¶óÀÎ', color: colors.offline};
+  return {label: 'ì˜¤í”„ë¼ì¸', color: colors.offline};
 };
 
 const initials = (name) => {
@@ -51,31 +51,66 @@ const ContactsScreen = ({navigation}) => {
         container: {
           flex: 1,
           backgroundColor: colors.background,
-          paddingTop: spacing.component.screenTop
+          paddingTop: spacing.component.screenTop,
+          overflow: 'hidden'
+        },
+        bgGlowTop: {
+          position: 'absolute',
+          top: -120,
+          right: -120,
+          width: 280,
+          height: 280,
+          borderRadius: 140,
+          backgroundColor: colors.surface03,
+          opacity: 0.45
+        },
+        bgGlowBottom: {
+          position: 'absolute',
+          bottom: -100,
+          left: -100,
+          width: 240,
+          height: 240,
+          borderRadius: 120,
+          backgroundColor: colors.surface02,
+          opacity: 0.4
         },
         header: {
           paddingHorizontal: spacing.component.screenHorizontal,
+          paddingBottom: spacing.xs,
           flexDirection: 'row',
           justifyContent: 'space-between',
-          alignItems: 'center'
+          alignItems: 'flex-start'
         },
         title: {
           ...typography.textStyle(typography.size['2xl'], typography.weight.bold, typography.lineHeight.tight),
-          color: colors.textPrimary
+          color: colors.textPrimary,
+          letterSpacing: -0.5
         },
-        nodeRow: {
-          marginTop: spacing.xs - 2,
+        subtitle: {
+          marginTop: spacing.xxs,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        statusRow: {
+          marginTop: spacing.xs,
           flexDirection: 'row',
-          alignItems: 'center'
+          alignItems: 'center',
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          borderRadius: 999,
+          paddingVertical: spacing.xxs + 1,
+          paddingHorizontal: spacing.xs + 2,
+          alignSelf: 'flex-start'
         },
         onlineDot: {
-          width: 8,
-          height: 8,
+          width: 7,
+          height: 7,
           borderRadius: 4,
-          marginRight: 7
+          marginRight: spacing.xxs + 1
         },
-        nodeText: {
-          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+        statusText: {
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold),
           color: colors.textSecondary
         },
         settingsBtn: {
@@ -88,8 +123,25 @@ const ContactsScreen = ({navigation}) => {
           borderWidth: 1,
           borderColor: colors.border
         },
+        securityBanner: {
+          marginTop: spacing.xs,
+          marginHorizontal: spacing.component.screenHorizontal,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: spacing.xs,
+          paddingHorizontal: spacing.sm
+        },
+        securityBannerText: {
+          marginLeft: spacing.xs,
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textSecondary
+        },
         listContent: {
-          marginTop: spacing.md,
+          marginTop: spacing.sm,
           paddingHorizontal: spacing.sm,
           paddingBottom: spacing['3xl'] + spacing.lg
         },
@@ -107,25 +159,25 @@ const ContactsScreen = ({navigation}) => {
           ...typography.textStyle(typography.size.sm, typography.weight.regular),
           color: colors.textSecondary,
           textAlign: 'center',
-          maxWidth: 260
+          maxWidth: 280
         },
         peerCard: {
-          marginBottom: spacing.xs + 2,
+          marginBottom: spacing.xs + 3,
           borderRadius: spacing.md,
-          padding: spacing.sm,
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.sm,
           borderWidth: 1,
-          borderColor: 'transparent',
+          borderColor: colors.border,
           backgroundColor: colors.surface01,
           flexDirection: 'row'
         },
         peerCardPressed: {
-          backgroundColor: colors.surface02,
-          borderColor: colors.border
+          backgroundColor: colors.surface02
         },
         avatarWrap: {
           width: 52,
           height: 52,
-          borderRadius: spacing.sm,
+          borderRadius: 26,
           backgroundColor: colors.surface03,
           alignItems: 'center',
           justifyContent: 'center'
@@ -136,17 +188,17 @@ const ContactsScreen = ({navigation}) => {
         },
         statusDot: {
           position: 'absolute',
-          right: -1,
-          bottom: -1,
-          width: 14,
-          height: 14,
-          borderRadius: 7,
+          right: 1,
+          bottom: 1,
+          width: 12,
+          height: 12,
+          borderRadius: 6,
           borderWidth: 2,
           borderColor: colors.surface01
         },
         peerMain: {
           flex: 1,
-          marginLeft: spacing.sm - 1
+          marginLeft: spacing.sm
         },
         peerTop: {
           flexDirection: 'row',
@@ -159,8 +211,14 @@ const ContactsScreen = ({navigation}) => {
           color: colors.textPrimary,
           marginRight: spacing.xs
         },
+        peerStatePill: {
+          borderRadius: 999,
+          paddingVertical: 3,
+          paddingHorizontal: spacing.xs,
+          backgroundColor: colors.surface02
+        },
         peerState: {
-          ...typography.textStyle(typography.size.xs, typography.weight.semibold)
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold)
         },
         peerBottom: {
           marginTop: spacing.xxs + 1,
@@ -187,7 +245,7 @@ const ContactsScreen = ({navigation}) => {
           color: colors.onPrimary
         },
         peerId: {
-          marginTop: spacing.xxs + 1,
+          marginTop: spacing.xxs + 2,
           ...typography.textStyle(typography.size.xs - 1, typography.weight.regular),
           color: colors.textMuted,
           fontFamily: typography.fontFamily.mono
@@ -203,8 +261,8 @@ const ContactsScreen = ({navigation}) => {
           justifyContent: 'center',
           backgroundColor: colors.primary,
           shadowColor: '#000000',
-          shadowOffset: {width: 0, height: 8},
-          shadowOpacity: 0.28,
+          shadowOffset: {width: 0, height: 10},
+          shadowOpacity: 0.3,
           shadowRadius: 14,
           elevation: 10
         }
@@ -214,33 +272,48 @@ const ContactsScreen = ({navigation}) => {
 
   const rows = useMemo(
     () =>
-      peers.map((peer) => {
-        const messages = getMessagesForPeer(peer.id);
-        const last = messages[messages.length - 1];
-        return {
-          ...peer,
-          lastText: last ? last.text : '¾ÆÁ÷ ¸Ş½ÃÁö°¡ ¾ø¾î¿ä',
-          unreadCount: getUnreadCountForPeer(peer.id),
-          connectionState: getPeerConnectionState(peer.id)
-        };
-      }),
+      [...peers]
+        .sort((a, b) => {
+          if (Boolean(a.isSelf) !== Boolean(b.isSelf)) {
+            return a.isSelf ? -1 : 1;
+          }
+          return (b.lastMessageAt || 0) - (a.lastMessageAt || 0);
+        })
+        .map((peer) => {
+          const messages = getMessagesForPeer(peer.id);
+          const last = messages[messages.length - 1];
+          return {
+            ...peer,
+            lastText: last
+              ? last.text
+              : peer.isSelf
+                ? 'ê°œì¸ ë©”ëª¨ë¥¼ ì‘ì„±í•´ ë³´ì„¸ìš”'
+                : 'ì•„ì§ ë©”ì‹œì§€ê°€ ì—†ì–´ìš”',
+            unreadCount: getUnreadCountForPeer(peer.id),
+            connectionState: getPeerConnectionState(peer.id)
+          };
+        }),
     [peers, getMessagesForPeer, getPeerConnectionState, getUnreadCountForPeer]
   );
 
   return (
     <View style={styles.container}>
+      <View pointerEvents="none" style={styles.bgGlowTop} />
+      <View pointerEvents="none" style={styles.bgGlowBottom} />
+
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Veil</Text>
-          <View style={styles.nodeRow}>
+          <Text style={styles.title}>Session</Text>
+          <Text style={styles.subtitle}>Secure messages routed privately</Text>
+          <View style={styles.statusRow}>
             <View
               style={[
                 styles.onlineDot,
                 {backgroundColor: networkOnline ? colors.online : colors.offline}
               ]}
             />
-            <Text style={styles.nodeText}>
-              ³ëµå {networkOnline ? '¿Â¶óÀÎ' : '¿ÀÇÁ¶óÀÎ'} ¡¤ ID {toShortPeerLabel(profile?.id || '')}
+            <Text style={styles.statusText}>
+              {networkOnline ? 'ë„¤íŠ¸ì›Œí¬ ì˜¨ë¼ì¸' : 'ë„¤íŠ¸ì›Œí¬ ì˜¤í”„ë¼ì¸'} Â· Session ID {toShortPeerLabel(profile?.id || '')}
             </Text>
           </View>
         </View>
@@ -248,9 +321,14 @@ const ContactsScreen = ({navigation}) => {
           style={styles.settingsBtn}
           onPress={() => navigation.navigate('settings')}
           accessibilityRole="button"
-          accessibilityLabel="¼³Á¤ ¿­±â">
+          accessibilityLabel="ì„¤ì • ì—´ê¸°">
           <MaterialIcons name="settings" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.securityBanner}>
+        <MaterialIcons name="shield" size={16} color={colors.success} />
+        <Text style={styles.securityBannerText}>ëª¨ë“  ì±„íŒ…ì€ ì¢…ë‹¨ê°„ ì•”í˜¸í™”(E2E)ë¡œ ë³´í˜¸ë©ë‹ˆë‹¤</Text>
       </View>
 
       <FlatList
@@ -260,8 +338,8 @@ const ContactsScreen = ({navigation}) => {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>¿¬°áµÈ Ä£±¸°¡ ¾ø¾î¿ä</Text>
-            <Text style={styles.emptyDesc}>¾Æ·¡ + ¹öÆ°À¸·Î Ä£±¸¸¦ Ãß°¡ÇÏ°í ¾ÈÀüÇÑ ´ëÈ­¸¦ ½ÃÀÛÇØ º¸¼¼¿ä.</Text>
+            <Text style={styles.emptyTitle}>ì—°ê²°ëœ ì¹œêµ¬ê°€ ì—†ì–´ìš”</Text>
+            <Text style={styles.emptyDesc}>ì•„ë˜ ë²„íŠ¼ìœ¼ë¡œ ì¹œêµ¬ë¥¼ ì¶”ê°€í•˜ê³  Session ë°©ì‹ì˜ ì•ˆì „í•œ ëŒ€í™”ë¥¼ ì‹œì‘í•´ ë³´ì„¸ìš”.</Text>
           </View>
         }
         renderItem={({item}) => {
@@ -269,7 +347,7 @@ const ContactsScreen = ({navigation}) => {
           return (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${item.name} Ã¤ÆÃ ¿­±â`}
+              accessibilityLabel={`${item.name} ì±„íŒ… ì—´ê¸°`}
               style={({pressed}) => [styles.peerCard, pressed && styles.peerCardPressed]}
               onPress={() =>
                 navigation.navigate('Chat', {
@@ -287,7 +365,9 @@ const ContactsScreen = ({navigation}) => {
                   <Text numberOfLines={1} style={styles.peerName}>
                     {item.name}
                   </Text>
-                  <Text style={[styles.peerState, {color: meta.color}]}>{meta.label}</Text>
+                  <View style={styles.peerStatePill}>
+                    <Text style={[styles.peerState, {color: meta.color}]}>{meta.label}</Text>
+                  </View>
                 </View>
 
                 <View style={styles.peerBottom}>
@@ -301,7 +381,7 @@ const ContactsScreen = ({navigation}) => {
                   ) : null}
                 </View>
 
-                <Text style={styles.peerId}>{toShortPeerLabel(item.id)}</Text>
+                <Text style={styles.peerId}>ID {toShortPeerLabel(item.id)}</Text>
               </View>
             </Pressable>
           );
@@ -312,7 +392,7 @@ const ContactsScreen = ({navigation}) => {
         style={styles.fab}
         onPress={() => navigation.navigate('AddPeer')}
         accessibilityRole="button"
-        accessibilityLabel="Ä£±¸ Ãß°¡">
+        accessibilityLabel="ì¹œêµ¬ ì¶”ê°€">
         <MaterialIcons name="add" size={28} color={colors.onPrimary} />
       </TouchableOpacity>
     </View>

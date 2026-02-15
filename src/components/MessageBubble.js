@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import {Image, Linking, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {MESSAGE_STATUS} from '../utils/constants';
 import {useTheme} from '../context/ThemeContext';
@@ -23,13 +23,14 @@ const StatusIcon = ({status, color}) => {
 const MessageBubble = ({message}) => {
   const {colors, typography, spacing} = useTheme();
   const isOutgoing = message.direction === 'outgoing';
+  const isAttachment = message.type === 'attachment' && message.attachment;
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         row: {
-          maxWidth: '86%',
-          marginBottom: spacing.sm + 2
+          maxWidth: '79%',
+          marginBottom: spacing.xs + 2
         },
         rowOutgoing: {
           alignSelf: 'flex-end',
@@ -40,22 +41,25 @@ const MessageBubble = ({message}) => {
           alignItems: 'flex-start'
         },
         bubble: {
-          borderRadius: 19,
+          borderRadius: 20,
           paddingHorizontal: spacing.sm,
-          paddingVertical: spacing.xs + 2
+          paddingVertical: spacing.xs + 1
         },
         bubbleOutgoing: {
           backgroundColor: colors.primary,
-          borderTopRightRadius: 7
+          borderBottomRightRadius: 8,
+          borderTopRightRadius: 14
         },
         bubbleIncoming: {
-          backgroundColor: colors.surface01,
-          borderTopLeftRadius: 7,
+          backgroundColor: colors.surface02,
+          borderBottomLeftRadius: 8,
+          borderTopLeftRadius: 14,
           borderWidth: 1,
           borderColor: colors.border
         },
         text: {
-          ...typography.textStyle(typography.size.sm, typography.weight.regular)
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          lineHeight: 19
         },
         textOutgoing: {
           color: colors.onPrimary
@@ -64,7 +68,7 @@ const MessageBubble = ({message}) => {
           color: colors.textPrimary
         },
         metaRow: {
-          marginTop: spacing.xxs,
+          marginTop: 2,
           flexDirection: 'row',
           alignItems: 'center'
         },
@@ -76,24 +80,106 @@ const MessageBubble = ({message}) => {
         },
         metaText: {
           marginHorizontal: 2,
-          ...typography.textStyle(typography.size.xs - 2, typography.weight.semibold),
+          ...typography.textStyle(typography.size.xs - 3, typography.weight.semibold),
           color: colors.textMuted
+        },
+        expiryMeta: {
+          marginLeft: spacing.xxs + 1,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        expiryText: {
+          marginLeft: 2,
+          ...typography.textStyle(typography.size.xs - 3, typography.weight.semibold),
+          color: colors.textMuted
+        },
+        attachmentCard: {
+          minWidth: 200
+        },
+        attachmentImage: {
+          width: 210,
+          height: 144,
+          borderRadius: 12,
+          backgroundColor: colors.surface03
+        },
+        attachmentFileRow: {
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        attachmentFileTextWrap: {
+          marginLeft: spacing.xs,
+          flex: 1
+        },
+        attachmentFileName: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: isOutgoing ? colors.onPrimary : colors.textPrimary
+        },
+        attachmentFileUrl: {
+          marginTop: 1,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular),
+          color: isOutgoing ? colors.onPrimary : colors.textSecondary
+        },
+        attachmentCaption: {
+          marginTop: spacing.xxs + 1,
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: isOutgoing ? colors.onPrimary : colors.textSecondary
         }
       }),
-    [colors, spacing, typography]
+    [colors, isOutgoing, spacing, typography]
   );
+
+  const onOpenAttachment = () => {
+    const url = message?.attachment?.url;
+    if (!url) {
+      return;
+    }
+    Linking.openURL(url).catch(() => null);
+  };
 
   return (
     <View style={[styles.row, isOutgoing ? styles.rowOutgoing : styles.rowIncoming]}>
-      <View
+      <TouchableOpacity
+        activeOpacity={isAttachment ? 0.85 : 1}
+        onPress={isAttachment ? onOpenAttachment : undefined}
         style={[
           styles.bubble,
           isOutgoing ? styles.bubbleOutgoing : styles.bubbleIncoming
         ]}>
-        <Text style={[styles.text, isOutgoing ? styles.textOutgoing : styles.textIncoming]}>
-          {message.text}
-        </Text>
-      </View>
+        {isAttachment ? (
+          <View style={styles.attachmentCard}>
+            {message.attachment.type === 'image' ? (
+              <Image
+                source={{uri: message.attachment.url}}
+                style={styles.attachmentImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.attachmentFileRow}>
+                <MaterialIcons
+                  name="insert-drive-file"
+                  size={18}
+                  color={isOutgoing ? colors.onPrimary : colors.textPrimary}
+                />
+                <View style={styles.attachmentFileTextWrap}>
+                  <Text numberOfLines={1} style={styles.attachmentFileName}>
+                    {message.attachment.name || '첨부 파일'}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.attachmentFileUrl}>
+                    {message.attachment.url}
+                  </Text>
+                </View>
+              </View>
+            )}
+            {message.text ? (
+              <Text style={styles.attachmentCaption}>{message.text}</Text>
+            ) : null}
+          </View>
+        ) : (
+          <Text style={[styles.text, isOutgoing ? styles.textOutgoing : styles.textIncoming]}>
+            {message.text}
+          </Text>
+        )}
+      </TouchableOpacity>
 
       <View style={[styles.metaRow, isOutgoing ? styles.metaRowOutgoing : styles.metaRowIncoming]}>
         <Text style={styles.metaText}>
@@ -102,6 +188,12 @@ const MessageBubble = ({message}) => {
             minute: '2-digit'
           })}
         </Text>
+        {message.expiresAt ? (
+          <View style={styles.expiryMeta}>
+            <MaterialIcons name="timer" size={10} color={colors.textMuted} />
+            <Text style={styles.expiryText}>자동 삭제</Text>
+          </View>
+        ) : null}
         {isOutgoing ? <StatusIcon status={message.status} color={colors.textMuted} /> : null}
       </View>
     </View>

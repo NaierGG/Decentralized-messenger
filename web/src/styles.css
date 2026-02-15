@@ -1,43 +1,43 @@
-﻿/* ============================================================
-   Veil — Dark Cyberpunk Decentralized Messenger
+/* ============================================================
+   Session - Private Decentralized Messenger
    ============================================================ */
 
 :root {
   /* Core dark palette */
-  --bg-deep: #060a14;
-  --bg-base: #0a0e1a;
-  --bg-surface: #0f1424;
-  --bg-surface-hover: #141a2e;
-  --bg-elevated: #161c30;
-  --bg-card: rgba(14, 19, 36, 0.85);
-  --bg-card-border: rgba(56, 92, 168, 0.12);
+  --bg-deep: #070c0d;
+  --bg-base: #0d1314;
+  --bg-surface: #141c1e;
+  --bg-surface-hover: #1a2426;
+  --bg-elevated: #1f2b2e;
+  --bg-card: rgba(20, 30, 33, 0.88);
+  --bg-card-border: rgba(74, 120, 108, 0.16);
 
   /* Text colors */
-  --text-primary: #e8ecf4;
-  --text-secondary: #8892a8;
-  --text-muted: #5a647a;
-  --text-accent: #4a9eff;
+  --text-primary: #edf4f1;
+  --text-secondary: #afc0ba;
+  --text-muted: #7c9088;
+  --text-accent: #57c6a2;
 
   /* Brand / Accent */
-  --accent: #2563eb;
-  --accent-hover: #3b82f6;
-  --accent-glow: rgba(37, 99, 235, 0.25);
-  --accent-subtle: rgba(37, 99, 235, 0.08);
-  --accent-ring: rgba(37, 99, 235, 0.35);
+  --accent: #2ea882;
+  --accent-hover: #38b891;
+  --accent-glow: rgba(46, 168, 130, 0.28);
+  --accent-subtle: rgba(46, 168, 130, 0.12);
+  --accent-ring: rgba(46, 168, 130, 0.38);
 
   /* Status */
-  --green: #22c55e;
-  --green-glow: rgba(34, 197, 94, 0.2);
-  --green-text: #4ade80;
-  --orange: #f59e0b;
-  --orange-text: #fbbf24;
-  --red: #ef4444;
-  --red-text: #f87171;
+  --green: #4cd8ab;
+  --green-glow: rgba(76, 216, 171, 0.25);
+  --green-text: #7ce8c4;
+  --orange: #e9b563;
+  --orange-text: #f2cc87;
+  --red: #ea6f6f;
+  --red-text: #f3a3a3;
 
   /* Borders */
-  --border: rgba(56, 92, 168, 0.15);
-  --border-strong: rgba(56, 92, 168, 0.25);
-  --border-accent: rgba(37, 99, 235, 0.3);
+  --border: rgba(97, 130, 120, 0.2);
+  --border-strong: rgba(97, 130, 120, 0.34);
+  --border-accent: rgba(46, 168, 130, 0.35);
 
   /* Radius */
   --radius: 14px;
@@ -50,7 +50,7 @@
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.15);
+  --shadow-glow: 0 0 20px rgba(46, 168, 130, 0.18);
 
   /* Sizes */
   --container-max: 430px;
@@ -80,7 +80,7 @@ body,
 body {
   background: var(--bg-deep);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Space Grotesk', 'Pretendard Variable', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 15px;
   line-height: 1.5;
   overflow-x: hidden;
@@ -124,14 +124,14 @@ a {
 /* Desktop: center the mobile frame with a subtle border */
 @media (min-width: 480px) {
   body {
-    background: #030508;
+    background: #050808;
   }
 
   .app-root {
     min-height: 100vh;
     border-left: 1px solid var(--border);
     border-right: 1px solid var(--border);
-    box-shadow: 0 0 80px rgba(37, 99, 235, 0.05);
+    box-shadow: 0 0 80px rgba(46, 168, 130, 0.08);
   }
 }
 
@@ -2249,3 +2249,4 @@ a {
 /* ============================================================
    Legacy UI classes (Note: Components should migrate to new utility classes)
    ============================================================ */
+

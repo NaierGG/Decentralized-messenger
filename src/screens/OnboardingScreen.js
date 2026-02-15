@@ -1,7 +1,6 @@
 import React, {useMemo, useState} from 'react';
 import {
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -14,9 +13,6 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {useApp} from '../context/AppContext';
 import {useTheme} from '../context/ThemeContext';
 
-const HERO_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuCixoI0R-UBwVip6lkjlxzTDG7vVcb3snxaLvJ4zB3ii1AnzgDXrCzfxkEginiX1kwCAP3Ci9NMbGEj292yptV665yT44nYJMhlrnj47nBBj627RWCHfxOCPLTL-ji8Slni4bROeTmU8dfUQSUsmaGPcsSyvaco43RYEKwMlnsXSiHC4hF4gnLE9mvDME2xGfRgKTzDJDmnfft68koIyEjP_Hb0M3r57hE2Ja0Ijrvf40TrnMovniAyCWPcQqX39qkGxG61LFKLPoM';
-
 const OnboardingScreen = () => {
   const {createOrUpdateProfile} = useApp();
   const {colors, spacing, typography} = useTheme();
@@ -28,57 +24,91 @@ const OnboardingScreen = () => {
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background
+          backgroundColor: colors.background,
+          overflow: 'hidden'
         },
         bgOrbTop: {
           position: 'absolute',
-          top: -100,
-          right: -80,
-          width: 260,
-          height: 260,
-          borderRadius: 130,
-          backgroundColor: colors.surface03
+          top: -120,
+          right: -130,
+          width: 320,
+          height: 320,
+          borderRadius: 160,
+          backgroundColor: colors.surface03,
+          opacity: 0.5
         },
         bgOrbSide: {
           position: 'absolute',
-          top: 210,
+          bottom: -80,
           left: -70,
-          width: 190,
-          height: 190,
-          borderRadius: 95,
-          backgroundColor: colors.surface02
+          width: 230,
+          height: 230,
+          borderRadius: 115,
+          backgroundColor: colors.surface02,
+          opacity: 0.45
         },
         content: {
           flex: 1,
           paddingHorizontal: spacing.lg,
-          paddingTop: Platform.OS === 'ios' ? spacing['2xl'] + 10 : spacing.xl + spacing.xs,
+          paddingTop: Platform.OS === 'ios' ? spacing['2xl'] + 10 : spacing.xl + spacing.sm,
           paddingBottom: spacing.lg
         },
+        topBar: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        },
+        brand: {
+          ...typography.textStyle(typography.size.xl, typography.weight.bold),
+          color: colors.textPrimary,
+          letterSpacing: -0.3
+        },
+        statusChip: {
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          paddingHorizontal: spacing.sm - 1,
+          paddingVertical: spacing.xxs + 1,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        statusDot: {
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+          marginRight: spacing.xxs + 1,
+          backgroundColor: colors.online
+        },
+        statusText: {
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold),
+          color: colors.textSecondary
+        },
         heroSection: {
-          flex: 1,
+          marginTop: spacing['2xl'] - 4,
           alignItems: 'center',
           justifyContent: 'center'
         },
         heroRing: {
-          width: 190,
-          height: 190,
-          borderRadius: 95,
+          width: 124,
+          height: 124,
+          borderRadius: 62,
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: spacing.lg,
+          marginBottom: spacing.md,
           borderWidth: 2,
           borderColor: colors.border,
-          backgroundColor: colors.surface01
-        },
-        heroImage: {
-          width: 170,
-          height: 170,
-          borderRadius: 85
+          backgroundColor: colors.surface01,
+          shadowColor: colors.primary,
+          shadowOffset: {width: 0, height: 8},
+          shadowOpacity: 0.25,
+          shadowRadius: 24,
+          elevation: 8
         },
         badge: {
           position: 'absolute',
-          bottom: spacing.xs,
-          right: -spacing.xs + 2,
+          bottom: -spacing.xs + 2,
+          right: -spacing.sm + 1,
           borderRadius: 999,
           backgroundColor: colors.surface01,
           borderWidth: 1,
@@ -94,26 +124,37 @@ const OnboardingScreen = () => {
           color: colors.textPrimary
         },
         title: {
-          ...typography.textStyle(typography.size['3xl'], typography.weight.bold, typography.lineHeight.tight),
+          ...typography.textStyle(
+            typography.size['3xl'],
+            typography.weight.bold,
+            typography.lineHeight.tight
+          ),
           color: colors.textPrimary,
-          letterSpacing: -0.5
+          letterSpacing: -0.5,
+          textAlign: 'center'
         },
         titlePrimary: {
           color: colors.primary
         },
         subtitle: {
           marginTop: spacing.xs,
-          maxWidth: 290,
+          maxWidth: 300,
           textAlign: 'center',
           ...typography.textStyle(typography.size.sm, typography.weight.regular),
           color: colors.textSecondary
         },
         formSection: {
+          marginTop: spacing['2xl'],
           borderRadius: spacing.md + 6,
           borderWidth: 1,
           borderColor: colors.border,
           backgroundColor: colors.surface01,
-          padding: spacing.md + 2
+          padding: spacing.md + 2,
+          shadowColor: '#000000',
+          shadowOffset: {width: 0, height: 10},
+          shadowOpacity: 0.22,
+          shadowRadius: 20,
+          elevation: 6
         },
         label: {
           ...typography.textStyle(typography.size.sm, typography.weight.semibold),
@@ -181,7 +222,7 @@ const OnboardingScreen = () => {
       setSaving(true);
       await createOrUpdateProfile(name);
     } catch (error) {
-      Alert.alert('ÀÌ¸§À» È®ÀÎÇØ ÁÖ¼¼¿ä', error.message);
+      Alert.alert('ì´ë¦„ì„ í™•ì¸í•´ ì£¼ì„¸ìš”', error.message);
     } finally {
       setSaving(false);
     }
@@ -195,39 +236,51 @@ const OnboardingScreen = () => {
       <View style={styles.bgOrbSide} />
 
       <View style={styles.content}>
+        <View style={styles.topBar}>
+          <Text style={styles.brand}>Session</Text>
+          <View style={styles.statusChip}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusText}>Private routing ready</Text>
+          </View>
+        </View>
+
         <View style={styles.heroSection}>
           <View style={styles.heroRing}>
-            <Image source={{uri: HERO_IMAGE}} style={styles.heroImage} />
+            <MaterialIcons name="lock" size={48} color={colors.primary} />
             <View style={styles.badge}>
-              <MaterialIcons name="lock" size={12} color={colors.success} />
-              <Text style={styles.badgeText}>¾ÈÀü º¸Àå</Text>
+              <MaterialIcons name="shield" size={12} color={colors.success} />
+              <Text style={styles.badgeText}>E2E ì•”í˜¸í™”</Text>
             </View>
           </View>
           <Text style={styles.title}>
-            <Text style={styles.titlePrimary}>¾ÈÀüÇÑ</Text> ¸Þ½ÅÀú
+            <Text style={styles.titlePrimary}>Session ìŠ¤íƒ€ì¼</Text>
+            {'\n'}
+            ë³´ì•ˆ ë©”ì‹ ì €
           </Text>
-          <Text style={styles.subtitle}>´ç½ÅÀÇ ´ëÈ­´Â ¿ÀÁ÷ ´ç½Å¸¸ º¼ ¼ö ÀÖ¾î¿ä</Text>
+          <Text style={styles.subtitle}>
+            ì „í™”ë²ˆí˜¸ ì—†ì´ Session IDë¡œ ì—°ê²°í•˜ê³ , ëª¨ë“  ëŒ€í™”ë¥¼ ì¢…ë‹¨ê°„ ì•”í˜¸í™”ë¡œ ë³´í˜¸í•©ë‹ˆë‹¤.
+          </Text>
         </View>
 
         <View style={styles.formSection}>
-          <Text style={styles.label}>¾î¶»°Ô ºÒ·¯µå¸±±î¿ä?</Text>
+          <Text style={styles.label}>í‘œì‹œ ì´ë¦„</Text>
           <View style={styles.inputWrap}>
             <MaterialIcons name="person-outline" size={18} color={colors.textSecondary} />
             <TextInput
               value={name}
               onChangeText={setName}
-              placeholder="Ç¥½Ã ÀÌ¸§ ÀÔ·Â"
+              placeholder="í‘œì‹œ ì´ë¦„ ìž…ë ¥"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
               autoCapitalize="words"
-              accessibilityLabel="Ç¥½Ã ÀÌ¸§ ÀÔ·Â"
+              accessibilityLabel="í‘œì‹œ ì´ë¦„ ìž…ë ¥"
             />
           </View>
 
           <View style={styles.infoBox}>
             <MaterialIcons name="info-outline" size={16} color={colors.primary} />
             <Text style={styles.infoText}>
-              ÇÁ·ÎÇÊ°ú Å°´Â ÀÌ ±â±â¿¡¸¸ ÀúÀåµË´Ï´Ù. ¼­¹ö·Î ¾÷·ÎµåµÇÁö ¾Ê¾Æ¿ä.
+              í”„ë¡œí•„ê³¼ ì•”í˜¸í™” í‚¤ëŠ” ì´ ê¸°ê¸°ì—ë§Œ ì €ìž¥ë˜ë©° ì¤‘ì•™ ì„œë²„ì— ì—…ë¡œë“œë˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
             </Text>
           </View>
 
@@ -236,14 +289,14 @@ const OnboardingScreen = () => {
             style={[styles.button, saving && styles.buttonDisabled]}
             onPress={onContinue}
             accessibilityRole="button"
-            accessibilityLabel="ÇÁ·ÎÇÊ ¸¸µé±â">
+            accessibilityLabel="í”„ë¡œí•„ ë§Œë“¤ê¸°">
             <Text style={styles.buttonText}>
-              {saving ? 'ÇÁ·ÎÇÊ »ý¼º Áß...' : 'ÇÁ·ÎÇÊ ¸¸µé°í ½ÃÀÛÇÏ±â'}
+              {saving ? 'í”„ë¡œí•„ ìƒì„± ì¤‘...' : 'í”„ë¡œí•„ ë§Œë“¤ê³  ì‹œìž‘í•˜ê¸°'}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity disabled={saving} accessibilityRole="button" accessibilityLabel="±âÁ¸ ÇÁ·ÎÇÊ º¹¿ø">
-            <Text style={styles.restoreText}>±âÁ¸ ÇÁ·ÎÇÊ º¹¿ø</Text>
+          <TouchableOpacity disabled={saving} accessibilityRole="button" accessibilityLabel="ê¸°ì¡´ í”„ë¡œí•„ ë³µì›">
+            <Text style={styles.restoreText}>ë³µì› ê¸°ëŠ¥ì€ ê³§ ì œê³µë©ë‹ˆë‹¤</Text>
           </TouchableOpacity>
         </View>
       </View>

@@ -1,4 +1,4 @@
-import React from 'react';
+Ôªøimport React, {useMemo} from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -15,125 +15,205 @@ const SettingsScreen = ({navigation}) => {
   const {profile} = useApp();
   const {colors, typography, spacing, mode, toggleMode, useSystemMode} = useTheme();
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-      paddingTop: spacing.component.screenTop
-    },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: spacing.component.screenHorizontal,
-      marginBottom: spacing.md
-    },
-    iconBtn: {
-      width: spacing.component.iconButtonMin,
-      height: spacing.component.iconButtonMin,
-      borderRadius: spacing.component.iconButtonMin / 2,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surface01,
-      borderWidth: 1,
-      borderColor: colors.border
-    },
-    title: {
-      ...typography.textStyle(typography.size.xl, typography.weight.bold),
-      color: colors.textPrimary
-    },
-    card: {
-      marginHorizontal: spacing.component.screenHorizontal,
-      marginBottom: spacing.sm,
-      borderRadius: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface01,
-      padding: spacing.md
-    },
-    sectionTitle: {
-      ...typography.textStyle(typography.size.md, typography.weight.bold),
-      color: colors.textPrimary,
-      marginBottom: spacing.sm
-    },
-    row: {
-      marginBottom: spacing.sm
-    },
-    label: {
-      ...typography.textStyle(typography.size.xs, typography.weight.semibold),
-      color: colors.textSecondary,
-      marginBottom: spacing.xxs,
-      textTransform: 'uppercase'
-    },
-    value: {
-      ...typography.textStyle(typography.size.sm, typography.weight.regular),
-      color: colors.textPrimary,
-      fontFamily: typography.fontFamily.mono
-    },
-    actionBtn: {
-      height: spacing.component.buttonHeight,
-      borderRadius: spacing.sm,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface02,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: spacing.xs
-    },
-    actionText: {
-      ...typography.textStyle(typography.size.sm, typography.weight.semibold),
-      color: colors.textPrimary,
-      marginLeft: spacing.xs
-    }
-  });
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: spacing.component.screenTop,
+          overflow: 'hidden'
+        },
+        bgGlowTop: {
+          position: 'absolute',
+          top: -120,
+          right: -110,
+          width: 270,
+          height: 270,
+          borderRadius: 135,
+          backgroundColor: colors.surface03,
+          opacity: 0.42
+        },
+        bgGlowBottom: {
+          position: 'absolute',
+          bottom: -120,
+          left: -100,
+          width: 260,
+          height: 260,
+          borderRadius: 130,
+          backgroundColor: colors.surface02,
+          opacity: 0.36
+        },
+        header: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: spacing.component.screenHorizontal,
+          marginBottom: spacing.sm
+        },
+        iconBtn: {
+          width: spacing.component.iconButtonMin,
+          height: spacing.component.iconButtonMin,
+          borderRadius: spacing.component.iconButtonMin / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        titleWrap: {
+          alignItems: 'center'
+        },
+        title: {
+          ...typography.textStyle(typography.size.xl, typography.weight.bold),
+          color: colors.textPrimary,
+          letterSpacing: -0.25
+        },
+        subtitle: {
+          marginTop: 2,
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textSecondary
+        },
+        scroll: {
+          flex: 1
+        },
+        content: {
+          paddingBottom: spacing.lg
+        },
+        securityBanner: {
+          marginHorizontal: spacing.component.screenHorizontal,
+          marginBottom: spacing.sm,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          paddingVertical: spacing.xs,
+          paddingHorizontal: spacing.sm,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        securityBannerText: {
+          marginLeft: spacing.xs,
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textSecondary
+        },
+        card: {
+          marginHorizontal: spacing.component.screenHorizontal,
+          marginBottom: spacing.sm,
+          borderRadius: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          padding: spacing.md,
+          shadowColor: '#000000',
+          shadowOffset: {width: 0, height: 8},
+          shadowOpacity: 0.2,
+          shadowRadius: 18,
+          elevation: 4
+        },
+        sectionTitle: {
+          ...typography.textStyle(typography.size.md, typography.weight.bold),
+          color: colors.textPrimary,
+          marginBottom: spacing.sm
+        },
+        row: {
+          marginBottom: spacing.sm
+        },
+        label: {
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textSecondary,
+          marginBottom: spacing.xxs,
+          textTransform: 'uppercase'
+        },
+        value: {
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textPrimary,
+          fontFamily: typography.fontFamily.mono
+        },
+        actionBtn: {
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: spacing.xs
+        },
+        actionText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary,
+          marginLeft: spacing.xs
+        },
+        themeHint: {
+          marginTop: spacing.xxs,
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: colors.textMuted
+        }
+      }),
+    [colors, typography, spacing]
+  );
 
   return (
     <View style={styles.container}>
+      <View pointerEvents="none" style={styles.bgGlowTop} />
+      <View pointerEvents="none" style={styles.bgGlowBottom} />
+
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.iconBtn}
           onPress={() => navigation.goBack()}
           accessibilityRole="button"
-          accessibilityLabel="µ⁄∑Œ ∞°±‚"
+          accessibilityLabel="Îí§Î°ú Í∞ÄÍ∏∞"
           hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
           <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>º≥¡§</Text>
+
+        <View style={styles.titleWrap}>
+          <Text style={styles.title}>Session ÏÑ§Ï†ï</Text>
+          <Text style={styles.subtitle}>Privacy-first local profile</Text>
+        </View>
+
         <View style={{width: spacing.component.iconButtonMin}} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.securityBanner}>
+          <MaterialIcons name="verified-user" size={16} color={colors.success} />
+          <Text style={styles.securityBannerText}>ÌÇ§ÏôÄ ÌîÑÎ°úÌïÑÏùÄ Í∏∞Í∏∞ÏóêÎßå Ï†ÄÏû•ÎêòÎ©∞ ÏÑúÎ≤ÑÎ°ú ÏóÖÎ°úÎìúÎêòÏßÄ ÏïäÏäµÎãàÎã§</Text>
+        </View>
+
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>≥ª «¡∑Œ« </Text>
+          <Text style={styles.sectionTitle}>ÎÇ¥ Session ÌîÑÎ°úÌïÑ</Text>
           <View style={styles.row}>
-            <Text style={styles.label}>¿Ã∏ß</Text>
+            <Text style={styles.label}>Ïù¥Î¶Ñ</Text>
             <Text style={styles.value}>{profile?.name || '-'}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>≥ª ID</Text>
+            <Text style={styles.label}>Session ID</Text>
             <Text style={styles.value}>{toShortPeerLabel(profile?.id || '')}</Text>
           </View>
           <View>
-            <Text style={styles.label}>¡ˆπÆ</Text>
+            <Text style={styles.label}>ÏßÄÎ¨∏</Text>
             <Text style={styles.value}>{toShortPeerLabel(profile?.identityFingerprint || '')}</Text>
           </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>»≠∏È ≈◊∏∂</Text>
+          <Text style={styles.sectionTitle}>ÌôîÎ©¥ ÌÖåÎßà</Text>
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={toggleMode}
             accessibilityRole="button"
-            accessibilityLabel="¥Ÿ≈© ∏µÂ ¿¸»Ø">
+            accessibilityLabel="Îã§ÌÅ¨ Î™®Îìú Ï†ÑÌôò">
             <MaterialIcons
               name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
               size={18}
               color={colors.textPrimary}
             />
             <Text style={styles.actionText}>
-              {mode === 'dark' ? '∂Û¿Ã∆Æ ∏µÂ∑Œ ¿¸»Ø' : '¥Ÿ≈© ∏µÂ∑Œ ¿¸»Ø'}
+              {mode === 'dark' ? 'ÎùºÏù¥Ìä∏ Î™®ÎìúÎ°ú Ï†ÑÌôò' : 'Îã§ÌÅ¨ Î™®ÎìúÎ°ú Ï†ÑÌôò'}
             </Text>
           </TouchableOpacity>
 
@@ -141,10 +221,12 @@ const SettingsScreen = ({navigation}) => {
             style={styles.actionBtn}
             onPress={useSystemMode}
             accessibilityRole="button"
-            accessibilityLabel="Ω√Ω∫≈€ ≈◊∏∂ ªÁøÎ">
+            accessibilityLabel="ÏãúÏä§ÌÖú ÌÖåÎßà ÏÇ¨Ïö©">
             <MaterialIcons name="settings-suggest" size={18} color={colors.textPrimary} />
-            <Text style={styles.actionText}>Ω√Ω∫≈€ º≥¡§ ªÁøÎ</Text>
+            <Text style={styles.actionText}>ÏãúÏä§ÌÖú ÏÑ§Ï†ï ÏÇ¨Ïö©</Text>
           </TouchableOpacity>
+
+          <Text style={styles.themeHint}>ÌòÑÏû¨ Î™®Îìú: {mode === 'dark' ? 'Dark' : 'Light'}</Text>
         </View>
       </ScrollView>
     </View>
