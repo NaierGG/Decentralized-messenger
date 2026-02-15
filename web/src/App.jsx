@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+﻿import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {QRCodeSVG} from 'qrcode.react';
 import {
   CONNECTION_STATES,
@@ -31,7 +31,7 @@ const shortId = (value) => {
   if (value.length <= 14) {
     return value;
   }
-  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
 };
 
 const stateLabel = (state) => {
@@ -88,13 +88,186 @@ const readState = () => {
   }
 };
 
+const HeaderSection = ({profileId, onCopyId, copied}) => (
+  <header className="app-header card">
+    <div className="header-main">
+      <div className="header-left">
+        <div className="app-icon" aria-hidden="true">
+          P2P
+        </div>
+        <div className="header-text">
+          <h1 className="app-title">P2P Messenger</h1>
+          <div className="status-line">
+            <span className="status-dot" aria-hidden="true" />
+            <span className="status-text">Online</span>
+            <span className="separator" aria-hidden="true">
+              |
+            </span>
+            <span className="user-id">ID: {shortId(profileId)}</span>
+            <button
+              type="button"
+              className={`copy-id-btn ${copied ? 'success-animation' : ''}`}
+              onClick={onCopyId}
+              aria-label="Copy ID">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M8 8h10v12H8zM6 4h10v2H8v10H6z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <button className="notification-btn" type="button" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 3a6 6 0 0 0-6 6v3.4L4.4 15a1 1 0 0 0 .8 1.6h13.6a1 1 0 0 0 .8-1.6L18 12.4V9a6 6 0 0 0-6-6Zm0 18a2.7 2.7 0 0 0 2.5-1.8h-5A2.7 2.7 0 0 0 12 21Z"
+            fill="currentColor"
+          />
+        </svg>
+        <span className="notification-badge">3</span>
+      </button>
+    </div>
+  </header>
+);
+
+const SearchBar = ({value, onChange}) => (
+  <div className="search-container">
+    <label className="search-wrapper card" aria-label="Search conversations">
+      <svg className="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M10.5 4a6.5 6.5 0 1 0 4.05 11.58l3.43 3.44a1 1 0 0 0 1.42-1.42l-3.44-3.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+          fill="currentColor"
+        />
+      </svg>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search conversations..."
+        className="search-input"
+      />
+      <kbd className="search-shortcut">K</kbd>
+    </label>
+  </div>
+);
+
+const EmptyState = ({onScanQr, onShareCode}) => (
+  <div className="empty-state">
+    <div className="empty-illustration" aria-hidden="true">
+      <svg viewBox="0 0 200 200" className="devices-illustration">
+        <rect x="30" y="50" width="60" height="100" rx="8" fill="#E0EAFF" />
+        <rect
+          x="35"
+          y="55"
+          width="50"
+          height="80"
+          rx="4"
+          fill="#4F7CFF"
+          opacity="0.2"
+        />
+        <rect x="110" y="50" width="60" height="100" rx="8" fill="#E0EAFF" />
+        <rect
+          x="115"
+          y="55"
+          width="50"
+          height="80"
+          rx="4"
+          fill="#8B5CF6"
+          opacity="0.2"
+        />
+        <line
+          x1="90"
+          y1="100"
+          x2="110"
+          y2="100"
+          stroke="#4F7CFF"
+          strokeWidth="3"
+          strokeDasharray="5,5"
+          className="connection-line"
+        />
+      </svg>
+    </div>
+
+    <h2 className="empty-title">Start a Conversation</h2>
+    <p className="empty-description">
+      Connect with friends securely by scanning their QR code
+      <br />
+      or sharing yours.
+    </p>
+
+    <div className="empty-actions">
+      <button className="primary-action" type="button" onClick={onScanQr}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4zM8 8h8v8H8z"
+            fill="currentColor"
+          />
+        </svg>
+        Scan QR Code
+      </button>
+
+      <div className="divider">
+        <span>or</span>
+      </div>
+
+      <button className="secondary-action" type="button" onClick={onShareCode}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M18 16a3 3 0 0 0-2.24 1.02l-6.2-3.2a3.15 3.15 0 0 0 0-3.64l6.2-3.2A3 3 0 1 0 15 5a2.9 2.9 0 0 0 .06.6l-6.24 3.21a3 3 0 1 0 0 6.38l6.24 3.21A2.9 2.9 0 0 0 15 19a3 3 0 1 0 3-3Z"
+            fill="currentColor"
+          />
+        </svg>
+        Share My Code
+      </button>
+    </div>
+
+    <p className="empty-hint">Both devices must be online to connect</p>
+  </div>
+);
+
+const BottomNavigation = ({activeTab, onChats, onSettings}) => (
+  <nav className="bottom-nav" role="navigation" aria-label="Main navigation">
+    <button
+      type="button"
+      className={`nav-item ${activeTab === 'chats' ? 'active' : ''}`}
+      aria-current={activeTab === 'chats' ? 'page' : undefined}
+      onClick={onChats}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M4 5h16v11H7l-3 3V5Zm2 2v7.17L6.17 14H18V7H6Z"
+          fill="currentColor"
+        />
+      </svg>
+      <span>Chats</span>
+    </button>
+
+    <button
+      type="button"
+      className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+      onClick={onSettings}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M19.14 12.94a7.48 7.48 0 0 0 .05-.94 7.48 7.48 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.65l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.43h-3.84a.5.5 0 0 0-.5.43l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.83a.5.5 0 0 0 .12.65l2.03 1.58a7.48 7.48 0 0 0-.05.94 7.48 7.48 0 0 0 .05.94L2.83 14.52a.5.5 0 0 0-.12.65l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.43h3.84a.5.5 0 0 0 .5-.43l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.65l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+          fill="currentColor"
+        />
+      </svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+);
+
 function App() {
   const persisted = readState();
   const [profile, setProfile] = useState(persisted?.profile || null);
   const [peers, setPeers] = useState(persisted?.peers || []);
-  const [messagesByPeer, setMessagesByPeer] = useState(persisted?.messagesByPeer || {});
+  const [messagesByPeer, setMessagesByPeer] = useState(
+    persisted?.messagesByPeer || {}
+  );
   const [connectionStates, setConnectionStates] = useState({});
   const [screen, setScreen] = useState(persisted?.profile ? 'contacts' : 'onboarding');
+  const [activeMainTab, setActiveMainTab] = useState('chats');
   const [activePeerId, setActivePeerId] = useState(null);
   const [name, setName] = useState('');
   const [compose, setCompose] = useState('');
@@ -105,8 +278,11 @@ function App() {
   const [manualSignal, setManualSignal] = useState('');
   const [generatedSignal, setGeneratedSignal] = useState('');
   const [errorText, setErrorText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedId, setCopiedId] = useState(false);
   const managerRef = useRef(null);
   const activePeerRef = useRef(activePeerId);
+  const copiedTimerRef = useRef(null);
 
   useEffect(() => {
     activePeerRef.current = activePeerId;
@@ -122,6 +298,15 @@ function App() {
       })
     );
   }, [profile, peers, messagesByPeer]);
+
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) {
+        clearTimeout(copiedTimerRef.current);
+      }
+    },
+    []
+  );
 
   const ensureManager = () => {
     if (managerRef.current) {
@@ -218,6 +403,18 @@ function App() {
     () => (activePeerId ? messagesByPeer[activePeerId] || [] : []),
     [activePeerId, messagesByPeer]
   );
+  const filteredPeers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return peers;
+    }
+    return peers.filter(
+      (peer) =>
+        peer.id.toLowerCase().includes(query) ||
+        (peer.identity || '').toLowerCase().includes(query) ||
+        (peer.name || '').toLowerCase().includes(query)
+    );
+  }, [peers, searchQuery]);
 
   const upsertPeer = (patch) => {
     setPeers((previous) => {
@@ -254,6 +451,7 @@ function App() {
         createdAt: now()
       };
       setProfile(created);
+      setActiveMainTab('chats');
       setScreen('contacts');
       setErrorText('');
     } catch (error) {
@@ -330,6 +528,7 @@ function App() {
   };
 
   const openChat = (peerId) => {
+    setActiveMainTab('chats');
     setActivePeerId(peerId);
     setScreen('chat');
   };
@@ -447,30 +646,50 @@ function App() {
     }
   };
 
+  const copyProfileId = async () => {
+    if (!profile?.id) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(profile.id);
+      setCopiedId(true);
+      if (copiedTimerRef.current) {
+        clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = setTimeout(() => {
+        setCopiedId(false);
+      }, 900);
+    } catch (error) {
+      setErrorText('Failed to copy ID');
+    }
+  };
+
+  const handleOpenScan = () => {
+    setAddPeerTab('scan');
+    setShowAddPeer(true);
+  };
+
+  const handleOpenShare = () => {
+    setAddPeerTab('myid');
+    setShowAddPeer(true);
+  };
+
   return (
     <div className="app-shell">
       {screen === 'onboarding' && (
         <section className="onboarding" data-testid="onboarding-screen">
-          <div className="orb orb-top" />
-          <div className="orb orb-left" />
-          <div className="onboarding-inner">
-            <div className="hero-wrap">
-              <div className="hero-image-wrap">
-                <img
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuCixoI0R-UBwVip6lkjlxzTDG7vVcb3snxaLvJ4zB3ii1AnzgDXrCzfxkEginiX1kwCAP3Ci9NMbGEj292yptV665yT44nYJMhlrnj47nBBj627RWCHfxOCPLTL-ji8Slni4bROeTmU8dfUQSUsmaGPcsSyvaco43RYEKwMlnsXSiHC4hF4gnLE9mvDME2xGfRgKTzDJDmnfft68koIyEjP_Hb0M3r57hE2Ja0Ijrvf40TrnMovniAyCWPcQqX39qkGxG61LFKLPoM"
-                  alt="Network nodes"
-                />
-                <div className="badge">E2E Encrypted</div>
-              </div>
+          <div className="app-container">
+            <div className="onboarding-card card">
+              <div className="onboarding-badge">Secure P2P Messaging</div>
               <h1>
                 Secure <span>P2P</span> Chat
               </h1>
               <p>
-                True private messaging in your browser. No central message server.
+                Private conversations without central message servers.
+                <br />
+                Your keys stay on your device.
               </p>
-            </div>
 
-            <div className="onboarding-card">
               <label htmlFor="display-name">Who are you?</label>
               <input
                 id="display-name"
@@ -481,100 +700,120 @@ function App() {
               <button className="primary-btn" onClick={createProfile}>
                 Create Profile & Start
               </button>
-              <p className="hint">
-                Profile is stored in your browser local storage only.
-              </p>
             </div>
           </div>
         </section>
       )}
 
-      {screen === 'contacts' && (
-        <section className="contacts" data-testid="contacts-screen">
-          <header className="contacts-header">
-            <div>
-              <h2>P2P Messenger</h2>
-              <p>
-                Node Online - ID {shortId(profile?.id)} - Fingerprint {profile?.identityFingerprint}
-              </p>
-            </div>
-            <button className="ghost-btn" onClick={() => setShowAddPeer(true)}>
-              Add Peer
-            </button>
-          </header>
+      {profile && screen === 'contacts' && (
+        <section className="app-container contacts-screen" data-testid="contacts-screen">
+          <HeaderSection profileId={profile.id} onCopyId={copyProfileId} copied={copiedId} />
 
-          <div className="contacts-list">
-            {peers.length === 0 && (
-              <div className="empty-block">
-                <p>No peers yet</p>
-              </div>
-            )}
-            {peers.map((peer) => {
-              const state = connectionStates[peer.id] || CONNECTION_STATES.DISCONNECTED;
-              const unread = (messagesByPeer[peer.id] || []).filter(
-                (message) =>
-                  message.direction === 'incoming' &&
-                  message.status !== MESSAGE_STATUS.READ
-              ).length;
-              return (
-                <button
-                  key={peer.id}
-                  className="peer-row"
-                  onClick={() => openChat(peer.id)}>
-                  <div className="avatar">{(peer.name || 'P')[0].toUpperCase()}</div>
-                  <div className="peer-main">
-                    <div className="peer-top">
-                      <strong>{peer.name}</strong>
-                      <span className={stateClass(state)}>{stateLabel(state)}</span>
-                    </div>
-                    <div className="peer-bottom">
-                      <span>{peer.lastMessagePreview || 'No messages yet'}</span>
-                      {unread > 0 && <span className="unread-badge">{unread}</span>}
-                    </div>
-                    <small>{shortId(peer.id)}</small>
+          {activeMainTab === 'chats' ? (
+            <>
+              <SearchBar value={searchQuery} onChange={setSearchQuery} />
+              <main className="main-content">
+                {filteredPeers.length === 0 ? (
+                  <EmptyState onScanQr={handleOpenScan} onShareCode={handleOpenShare} />
+                ) : (
+                  <div className="chat-list card-list">
+                    {filteredPeers.map((peer) => {
+                      const state =
+                        connectionStates[peer.id] || CONNECTION_STATES.DISCONNECTED;
+                      const unread = (messagesByPeer[peer.id] || []).filter(
+                        (message) =>
+                          message.direction === 'incoming' &&
+                          message.status !== MESSAGE_STATUS.READ
+                      ).length;
+                      return (
+                        <button
+                          key={peer.id}
+                          className="peer-row card"
+                          onClick={() => openChat(peer.id)}>
+                          <div className="avatar">{(peer.name || 'P')[0].toUpperCase()}</div>
+                          <div className="peer-main">
+                            <div className="peer-top">
+                              <strong>{peer.name}</strong>
+                              <span className={stateClass(state)}>{stateLabel(state)}</span>
+                            </div>
+                            <div className="peer-bottom">
+                              <span>{peer.lastMessagePreview || 'No messages yet'}</span>
+                              {unread > 0 && <span className="unread-badge">{unread}</span>}
+                            </div>
+                            <small>{shortId(peer.id)}</small>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+              </main>
+            </>
+          ) : (
+            <main className="main-content">
+              <section className="settings-panel card">
+                <h2>Settings</h2>
+                <p>Profile and preferences UI will be expanded here.</p>
+                <div className="settings-row">
+                  <span>Display name</span>
+                  <strong>{profile.name}</strong>
+                </div>
+                <div className="settings-row">
+                  <span>Fingerprint</span>
+                  <strong>{profile.identityFingerprint}</strong>
+                </div>
+              </section>
+            </main>
+          )}
         </section>
       )}
 
       {screen === 'chat' && activePeer && (
-        <section className="chat" data-testid="chat-screen">
-          <header className="chat-header">
+        <section className="app-container chat" data-testid="chat-screen">
+          <header className="chat-header card">
             <button className="ghost-btn" onClick={() => setScreen('contacts')}>
               Back
             </button>
             <div>
               <h3>{activePeer.name}</h3>
-              <p className={stateClass(connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED)}>
-                {stateLabel(connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED)}
+              <p
+                className={stateClass(
+                  connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED
+                )}>
+                {stateLabel(
+                  connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED
+                )}
               </p>
             </div>
-            <button className="ghost-btn" onClick={() => setShowAddPeer(true)}>
-              Signal
+            <button className="ghost-btn" onClick={handleOpenScan}>
+              Connect
             </button>
           </header>
 
-          <div className="secure-chip">Messages secured by end-to-end encryption</div>
+          <div className="secure-chip card">Messages secured by end-to-end encryption</div>
 
-          <div className="message-list">
+          <div className="message-list card">
             {activeMessages.map((message) => (
               <div
                 key={message.id}
                 className={`bubble-row ${
-                  message.direction === 'outgoing' ? 'bubble-row-outgoing' : 'bubble-row-incoming'
+                  message.direction === 'outgoing'
+                    ? 'bubble-row-outgoing'
+                    : 'bubble-row-incoming'
                 }`}>
                 <div
                   className={`bubble ${
-                    message.direction === 'outgoing' ? 'bubble-outgoing' : 'bubble-incoming'
+                    message.direction === 'outgoing'
+                      ? 'bubble-outgoing'
+                      : 'bubble-incoming'
                   }`}>
                   {message.text}
                 </div>
                 <div className="bubble-meta">
                   <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
-                  {message.direction === 'outgoing' && <span>{statusText(message.status)}</span>}
+                  {message.direction === 'outgoing' && (
+                    <span>{statusText(message.status)}</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -582,7 +821,7 @@ function App() {
 
           {(connectionStates[activePeer.id] || CONNECTION_STATES.DISCONNECTED) !==
             CONNECTION_STATES.CONNECTED && (
-            <div className="reconnect-card">
+            <div className="reconnect-card card">
               <p>Connection dropped. Generate reconnect signal for ICE restart.</p>
               <button className="primary-btn" onClick={handleGenerateReconnect}>
                 Generate Reconnect QR
@@ -605,7 +844,7 @@ function App() {
 
       {showAddPeer && (
         <div className="modal-backdrop">
-          <section className="modal">
+          <section className="modal card">
             <header className="modal-header">
               <h3>Add Peer</h3>
               <button className="ghost-btn" onClick={() => setShowAddPeer(false)}>
@@ -617,12 +856,12 @@ function App() {
               <button
                 className={addPeerTab === 'scan' ? 'tab active-tab' : 'tab'}
                 onClick={() => setAddPeerTab('scan')}>
-                Scan/Paste
+                Add by Code
               </button>
               <button
                 className={addPeerTab === 'myid' ? 'tab active-tab' : 'tab'}
                 onClick={() => setAddPeerTab('myid')}>
-                My ID
+                My QR
               </button>
             </div>
 
@@ -641,7 +880,7 @@ function App() {
                   placeholder="Optional"
                 />
                 <button className="primary-btn" onClick={handleGenerateOffer}>
-                  Generate Offer
+                  Create Connection Code
                 </button>
 
                 <label>Paste Offer/Answer Signal</label>
@@ -651,7 +890,7 @@ function App() {
                   placeholder="p2pmsg://..."
                 />
                 <button className="outline-btn" onClick={handleProcessSignal}>
-                  Process Signal
+                  Complete Connection
                 </button>
               </div>
             )}
@@ -659,7 +898,7 @@ function App() {
             {addPeerTab === 'myid' && (
               <div className="tab-panel">
                 <label>My Peer ID</label>
-                <div className="id-pill">{profile?.id || 'Profile required'}</div>
+                <div className="id-pill card">{profile?.id || 'Profile required'}</div>
                 <div className="qr-box">
                   <QRCodeSVG value={generatedSignal || profile?.id || 'missing'} size={210} />
                 </div>
@@ -676,6 +915,30 @@ function App() {
             )}
           </section>
         </div>
+      )}
+
+      {profile && (
+        <>
+          <BottomNavigation
+            activeTab={activeMainTab}
+            onChats={() => {
+              setActiveMainTab('chats');
+              setScreen('contacts');
+            }}
+            onSettings={() => {
+              setActiveMainTab('settings');
+              setScreen('contacts');
+            }}
+          />
+          <button className="qr-fab" type="button" aria-label="Scan QR code" onClick={handleOpenScan}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4zM8 8h8v8H8z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </>
       )}
 
       {errorText && (
