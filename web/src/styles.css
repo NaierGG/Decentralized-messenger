@@ -1314,6 +1314,11 @@ a {
   background: rgba(239, 68, 68, 0.18);
 }
 
+.reconnect-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ============================================================
    Add Peer / New Connection Dialog
    ============================================================ */
@@ -1679,6 +1684,11 @@ a {
   background: var(--accent-hover);
 }
 
+.scan-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .scan-secondary-btn {
   width: 100%;
   height: 44px;
@@ -1695,6 +1705,11 @@ a {
 .scan-secondary-btn:hover {
   background: var(--bg-surface);
   border-color: var(--accent);
+}
+
+.scan-secondary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Generated signal display */
@@ -1786,6 +1801,15 @@ a {
   color: var(--red-text);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.scanner-error strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.scanner-error p {
+  margin-bottom: 8px;
 }
 
 /* ============================================================
@@ -2023,6 +2047,18 @@ a {
   align-items: center;
   gap: 8px;
   animation: slide-up 0.3s ease;
+}
+
+.toast-success {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--green-text);
+}
+
+.toast-info {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
 }
 
 @keyframes slide-up {

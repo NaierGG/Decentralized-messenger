@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -37,7 +37,13 @@ import {
   default as WebRtcManager,
 } from './lib/WebRtcManager';
 import { createIdentity, generateId, now } from './lib/crypto';
-import { fromSignalString, toSignalString } from './lib/signal';
+import {
+  computeSasCode,
+  decodePayload,
+  encodePayload,
+  logPayloadError,
+  randomNonce,
+} from './lib/payload';
 import {
   clearLegacyState,
   getPersistedState,
@@ -132,27 +138,48 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Add peer
-  const [addPeerTab, setAddPeerTab] = useState('mycode');
-  const [peerIdInput, setPeerIdInput] = useState('');
-  const [peerNameInput, setPeerNameInput] = useState('');
+  const [addPeerTab, setAddPeerTab] = useState('invite');
   const [manualSignal, setManualSignal] = useState('');
   const [generatedSignal, setGeneratedSignal] = useState('');
+  const [pendingConnections, setPendingConnections] = useState([]);
+  const [connectionFlow, setConnectionFlow] = useState({
+    state: 'idle',
+    payload: null,
+    responsePayload: null,
+    sas: '',
+  });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState('');
 
-  const [errorText, setErrorText] = useState('');
+  const [toast, setToast] = useState(null);
   const managerRef = useRef(null);
   const activePeerRef = useRef(activePeerId);
   const messagesEndRef = useRef(null);
   const searchInputRef = useRef(null);
   const restoreInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
   const scannerVideoRef = useRef(null);
   const scannerReaderRef = useRef(null);
   const scannerControlsRef = useRef(null);
   const scannerHandlingRef = useRef(false);
+  const pendingConnectionsRef = useRef(pendingConnections);
 
   useEffect(() => { activePeerRef.current = activePeerId; }, [activePeerId]);
+  useEffect(() => { pendingConnectionsRef.current = pendingConnections; }, [pendingConnections]);
   useEffect(() => { document.title = 'Veil'; }, []);
+
+  const showToast = (message, tone = 'info') => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    setToast({ message, tone });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 1500);
+  };
 
   // Initial load: IndexedDB first, then legacy localStorage fallback.
   useEffect(() => {
@@ -171,6 +198,7 @@ function App() {
 
         setProfile(next.profile);
         setPeers(next.peers);
+        setPendingConnections(next.pendingConnections || []);
         setMessagesByPeer(next.messagesByPeer);
         setScreen(next.profile ? 'contacts' : 'onboarding');
 
@@ -180,7 +208,8 @@ function App() {
         }
       } catch (e) {
         if (mounted) {
-          setErrorText('Failed to load saved data');
+          console.error('[hydrate] failed', e);
+          showToast('저장된 데이터를 불러오지 못했어요', 'error');
         }
       } finally {
         if (mounted) {
@@ -200,10 +229,15 @@ function App() {
   useEffect(() => {
     if (!hydrated) return;
 
-    setPersistedState({ profile, peers, messagesByPeer }).catch(() => {
-      setErrorText('Failed to save data');
+    setPersistedState({
+      profile,
+      peers,
+      pendingConnections,
+      messagesByPeer,
+    }).catch((error) => {
+      console.error('[persist] failed', error);
     });
-  }, [hydrated, profile, peers, messagesByPeer]);
+  }, [hydrated, profile, peers, pendingConnections, messagesByPeer]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -229,7 +263,15 @@ function App() {
     stopQrScanner();
   };
 
-  useEffect(() => () => stopQrScanner(), []);
+  useEffect(
+    () => () => {
+      stopQrScanner();
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    },
+    []
+  );
 
   const ensureManager = () => {
     if (managerRef.current) return managerRef.current;
@@ -238,14 +280,73 @@ function App() {
     return managerRef.current;
   };
 
+  const upsertPendingConnection = (patch) => {
+    setPendingConnections((prev) => {
+      const key = patch.id || patch.remoteId || patch.nonce;
+      const idx = prev.findIndex((item) =>
+        key
+          ? item.id === key || item.remoteId === patch.remoteId
+          : false
+      );
+      if (idx === -1) {
+        return [
+          ...prev,
+          {
+            id: key || generateId(),
+            state: 'idle',
+            createdAt: now(),
+            ...patch,
+          },
+        ];
+      }
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], ...patch };
+      return copy;
+    });
+  };
+
+  const clearPendingByRemoteId = (remoteId) => {
+    setPendingConnections((prev) => prev.filter((item) => item.remoteId !== remoteId));
+  };
+
   useEffect(() => {
     if (!profile) return;
     let manager;
-    try { manager = ensureManager(); } catch (e) { setErrorText(e.message); return; }
+    try {
+      manager = ensureManager();
+    } catch (e) {
+      console.error('[webrtc:init]', e);
+      showToast('현재 브라우저에서 실시간 연결을 사용할 수 없어요', 'error');
+      return;
+    }
 
     manager.setCallbacks({
       onConnectionState: (peerId, state) => {
         setConnectionStates((prev) => ({ ...prev, [peerId]: state }));
+
+        if (state === CONNECTION_STATES.CONNECTED) {
+          const pending = pendingConnectionsRef.current.find(
+            (item) => item.remoteId === peerId
+          );
+          upsertPeer({
+            id: peerId,
+            name: pending?.displayName || pending?.name || `Peer ${peerId.slice(0, 6)}`,
+            lifecycle: 'connected',
+          });
+          clearPendingByRemoteId(peerId);
+          setConnectionFlow((current) => ({ ...current, state: 'connected' }));
+        }
+
+        if (state === CONNECTION_STATES.DISCONNECTED || state === CONNECTION_STATES.FAILED) {
+          setPeers((prev) =>
+            prev.map((peer) =>
+              peer.id === peerId ? { ...peer, lifecycle: 'disconnected' } : peer
+            )
+          );
+          setConnectionFlow((current) =>
+            current.state === 'connected' ? { ...current, state: 'disconnected' } : current
+          );
+        }
       },
       onSecureMessage: (peerId, payload) => {
         if (payload.kind === 'chat') {
@@ -275,7 +376,10 @@ function App() {
           }));
         }
       },
-      onError: (err) => setErrorText(err.message || 'WebRTC error'),
+      onError: (err) => {
+        console.error('[webrtc:error]', err);
+        showToast('연결 중 문제가 발생했어요. 다시 시도해 주세요.', 'error');
+      },
     });
 
     return () => manager.closeAll();
@@ -299,7 +403,19 @@ function App() {
   const upsertPeer = (patch) => {
     setPeers((prev) => {
       const idx = prev.findIndex((p) => p.id === patch.id);
-      if (idx === -1) return [...prev, { id: patch.id, name: patch.name || `Peer ${patch.id.slice(0, 6)}`, lastMessagePreview: '', lastMessageAt: 0, pinned: false }];
+      if (idx === -1) {
+        return [
+          ...prev,
+          {
+            id: patch.id,
+            name: patch.name || `Peer ${patch.id.slice(0, 6)}`,
+            lastMessagePreview: '',
+            lastMessageAt: 0,
+            pinned: false,
+            lifecycle: patch.lifecycle || 'connected',
+          },
+        ];
+      }
       const copy = [...prev];
       copy[idx] = { ...copy[idx], ...patch };
       return copy;
@@ -308,14 +424,20 @@ function App() {
 
   const createProfile = async () => {
     const trimmed = name.trim();
-    if (!trimmed) { setErrorText('Display name is required.'); return; }
+    if (!trimmed) {
+      showToast('이름을 먼저 입력해 주세요', 'error');
+      return;
+    }
     try {
       const identity = await createIdentity();
       setProfile({ id: generateId(), name: trimmed, identityFingerprint: identity.publicFingerprint, createdAt: now() });
       setScreen('contacts');
       setActiveTab('chats');
-      setErrorText('');
-    } catch (e) { setErrorText(e.message || 'Failed to create profile'); }
+      showToast('프로필이 준비됐어요', 'success');
+    } catch (e) {
+      console.error('[profile:create]', e);
+      showToast('프로필 생성에 실패했어요. 다시 시도해 주세요.', 'error');
+    }
   };
 
   const sendMessage = async () => {
@@ -334,7 +456,8 @@ function App() {
       setMessagesByPeer((prev) => ({ ...prev, [activePeerId]: (prev[activePeerId] || []).map((m) => m.id === messageId ? { ...m, status: MESSAGE_STATUS.SENT } : m) }));
     } catch (e) {
       setMessagesByPeer((prev) => ({ ...prev, [activePeerId]: (prev[activePeerId] || []).map((m) => m.id === messageId ? { ...m, status: MESSAGE_STATUS.FAILED } : m) }));
-      setErrorText(e.message);
+      console.error('[message:send]', e);
+      showToast('메시지를 보내지 못했어요. 다시 시도해 주세요.', 'error');
     }
   };
 
@@ -343,70 +466,240 @@ function App() {
     setScreen('chat');
   };
 
-  const handleGenerateOffer = async () => {
-    if (!profile) return;
-    const pid = peerIdInput.trim();
-    if (!pid) { setErrorText('Target peer ID is required.'); return; }
-    try {
-      const mgr = ensureManager();
-      upsertPeer({ id: pid, name: peerNameInput.trim() || `Peer ${pid.slice(0, 6)}` });
-      const offer = await mgr.createOffer({ peerId: pid, localPeerId: profile.id, localIdentity: profile.identityFingerprint });
-      setGeneratedSignal(toSignalString(offer));
-      setErrorText('');
-      setAddPeerTab('mycode');
-    } catch (e) { setErrorText(e.message); }
+  const makeEnvelope = (type, extra = {}) => ({
+    v: 1,
+    t: type,
+    from: profile?.id || '',
+    name: profile?.name || '',
+    ts: Date.now(),
+    nonce: extra.nonce || randomNonce(),
+    ...extra,
+  });
+
+  const addPendingFromPayload = (payload) => {
+    upsertPendingConnection({
+      id: payload.nonce,
+      nonce: payload.nonce,
+      remoteId: payload.from,
+      displayName: payload.name || `Peer ${payload.from.slice(0, 6)}`,
+      state: payload.t === 'reconnect' ? 'reconnecting' : 'invite_scanned',
+      updatedAt: now(),
+    });
   };
 
-  const processSignalPayload = async (rawSignal) => {
+  const handleCreateInviteQr = () => {
     if (!profile) return;
 
+    const invite = makeEnvelope('invite');
+    setGeneratedSignal(encodePayload(invite));
+    setConnectionFlow({
+      state: 'invite_created',
+      payload: invite,
+      responsePayload: null,
+      sas: '',
+    });
+    upsertPendingConnection({
+      id: invite.nonce,
+      nonce: invite.nonce,
+      state: 'invite_created',
+      updatedAt: now(),
+    });
+    setAddPeerTab('invite');
+    showToast('초대 QR이 준비됐어요', 'success');
+  };
+
+  const moveToInviteReview = async (payload) => {
+    const sas = await computeSasCode(payload.from, profile.id);
+    addPendingFromPayload(payload);
+    setConnectionFlow({
+      state: 'invite_scanned',
+      payload,
+      responsePayload: null,
+      sas,
+    });
+    setAddPeerTab('receive');
+  };
+
+  const handleAcceptInvite = async () => {
+    if (!profile || !connectionFlow.payload || actionBusy) return;
+    const invite = connectionFlow.payload;
+
+    setActionBusy(true);
+    try {
+      const mgr = ensureManager();
+      const offer = await mgr.createOffer({
+        peerId: invite.from,
+        localPeerId: profile.id,
+        localIdentity: profile.identityFingerprint,
+      });
+
+      const acceptPayload = makeEnvelope('accept', {
+        nonce: invite.nonce,
+        inviteFrom: invite.from,
+        signal: offer,
+      });
+
+      setGeneratedSignal(encodePayload(acceptPayload));
+      setConnectionFlow((current) => ({
+        ...current,
+        state: 'accept_created',
+        responsePayload: acceptPayload,
+      }));
+      upsertPendingConnection({
+        id: invite.nonce,
+        nonce: invite.nonce,
+        remoteId: invite.from,
+        displayName: invite.name || `Peer ${invite.from.slice(0, 6)}`,
+        state: 'accept_created',
+        updatedAt: now(),
+      });
+      setAddPeerTab('invite');
+      showToast('수락 QR이 생성됐어요', 'success');
+    } catch (error) {
+      console.error('[invite:accept]', error);
+      showToast('요청을 처리하지 못했어요. 다시 시도해 주세요.', 'error');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const processDecodedPayload = async (payload) => {
+    if (!profile) return;
     const mgr = ensureManager();
-    const signal = fromSignalString(rawSignal);
 
-    if (signal.targetPeerId && signal.targetPeerId !== profile.id) {
-      throw new Error('Signal target mismatch.');
+    if (payload.from === profile.id) {
+      throw new Error('self_payload');
     }
 
-    if (signal.type === 'offer') {
-      const rpid = signal.peerId;
-      upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
-      const answer = await mgr.createAnswer({
-        offerSignal: signal,
-        localPeerId: profile.id,
-        localIdentity: profile.identityFingerprint
-      });
-      setGeneratedSignal(toSignalString(answer));
-      setPeerIdInput(rpid);
-      setAddPeerTab('mycode');
+    if (payload.t === 'invite') {
+      await moveToInviteReview(payload);
       return;
     }
 
-    if (signal.type === 'answer') {
-      const rpid = signal.peerId;
-      upsertPeer({ id: rpid, name: peerNameInput.trim() || `Peer ${rpid.slice(0, 6)}` });
-      await mgr.acceptAnswer({
-        peerId: rpid,
-        answerSignal: signal,
-        localPeerId: profile.id,
-        localIdentity: profile.identityFingerprint
-      });
-      setPeerIdInput(rpid);
-      return;
+    if (payload.t === 'accept') {
+      if (!payload.signal || !payload.signal.type) {
+        throw new Error('missing_signal');
+      }
+
+      if (payload.signal.type === 'offer') {
+        const answer = await mgr.createAnswer({
+          offerSignal: payload.signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint,
+        });
+
+        const responsePayload = makeEnvelope('accept', {
+          nonce: payload.nonce,
+          inviteFrom: payload.from,
+          signal: answer,
+        });
+
+        setGeneratedSignal(encodePayload(responsePayload));
+        setConnectionFlow({
+          state: 'accept_created',
+          payload,
+          responsePayload,
+          sas: await computeSasCode(payload.from, profile.id),
+        });
+        upsertPendingConnection({
+          id: payload.nonce,
+          nonce: payload.nonce,
+          remoteId: payload.from,
+          displayName: payload.name || `Peer ${payload.from.slice(0, 6)}`,
+          state: 'accept_created',
+          updatedAt: now(),
+        });
+        setAddPeerTab('invite');
+        showToast('완료 QR을 상대에게 보여주세요', 'info');
+        return;
+      }
+
+      if (payload.signal.type === 'answer') {
+        await mgr.acceptAnswer({
+          peerId: payload.from,
+          answerSignal: payload.signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint,
+        });
+        upsertPendingConnection({
+          id: payload.nonce,
+          nonce: payload.nonce,
+          remoteId: payload.from,
+          displayName: payload.name || `Peer ${payload.from.slice(0, 6)}`,
+          state: 'connected',
+          updatedAt: now(),
+        });
+        setConnectionFlow((current) => ({ ...current, state: 'connected' }));
+        showToast('연결이 완료되고 있어요', 'success');
+        return;
+      }
     }
 
-    throw new Error('Unknown signal type');
+    if (payload.t === 'reconnect') {
+      if (!payload.signal || !payload.signal.type) {
+        throw new Error('missing_signal');
+      }
+
+      if (payload.signal.type === 'offer') {
+        const answer = await mgr.createAnswer({
+          offerSignal: payload.signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint,
+        });
+        const responsePayload = makeEnvelope('reconnect', {
+          nonce: payload.nonce,
+          signal: answer,
+        });
+        setGeneratedSignal(encodePayload(responsePayload));
+        setConnectionFlow({
+          state: 'reconnecting',
+          payload,
+          responsePayload,
+          sas: '',
+        });
+        setAddPeerTab('invite');
+        showToast('재연결 응답 QR을 공유해 주세요', 'info');
+        return;
+      }
+
+      if (payload.signal.type === 'answer') {
+        await mgr.acceptAnswer({
+          peerId: payload.from,
+          answerSignal: payload.signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint,
+        });
+        showToast('재연결을 시도하고 있어요', 'success');
+        return;
+      }
+    }
+
+    throw new Error('unsupported_payload');
+  };
+
+  const safeDecodeAndProcess = async (rawText) => {
+    try {
+      const decoded = decodePayload(rawText);
+      await processDecodedPayload(decoded);
+      return { ok: true, decoded };
+    } catch (error) {
+      logPayloadError(error, 'decode_or_process');
+      return { ok: false, error };
+    }
   };
 
   const handleProcessSignal = async () => {
-    if (!profile) return;
-    if (!manualSignal.trim()) { setErrorText('Paste signal text first.'); return; }
-
-    try {
-      await processSignalPayload(manualSignal);
-      setErrorText('');
-    } catch (e) {
-      setErrorText(e.message);
+    if (!manualSignal.trim()) {
+      showToast('코드를 입력해 주세요', 'error');
+      return;
     }
+
+    const result = await safeDecodeAndProcess(manualSignal);
+    if (!result.ok) {
+      showToast('코드가 올바르지 않아요. 다시 스캔해 주세요.', 'error');
+      return;
+    }
+    showToast('코드를 확인했어요', 'success');
   };
 
   const openQrScanner = () => {
@@ -424,7 +717,7 @@ function App() {
 
     const start = async () => {
       if (!scannerVideoRef.current) {
-        setScannerError('Camera preview is unavailable.');
+        showToast('카메라 미리보기를 열 수 없어요', 'error');
         return;
       }
 
@@ -439,21 +732,21 @@ function App() {
               scannerHandlingRef.current = true;
               const scannedText = result.getText();
 
-              try {
-                await processSignalPayload(scannedText);
+              const parsed = await safeDecodeAndProcess(scannedText);
+              if (parsed.ok) {
                 setManualSignal(scannedText);
-                setErrorText('');
                 setScannerError('');
                 closeQrScanner();
-              } catch (scanError) {
-                setScannerError(scanError?.message || 'Invalid QR payload');
+                showToast('Code verified', 'success');
+              } else {
+                setScannerError('invalid_payload');
                 scannerHandlingRef.current = false;
               }
               return;
             }
 
             if (err && err.name !== 'NotFoundException' && !scannerHandlingRef.current) {
-              setScannerError('Unable to read QR code. Keep the code inside frame.');
+              // Scanner keeps running; no UI error for transient frame misses.
             }
           }
         );
@@ -464,8 +757,10 @@ function App() {
         }
 
         scannerControlsRef.current = controls;
-      } catch {
-        setScannerError('Camera access failed. Check browser camera permission.');
+      } catch (cameraError) {
+        console.error('[scanner:start]', cameraError);
+        showToast('카메라 권한을 확인해 주세요', 'error');
+        closeQrScanner();
       }
     };
 
@@ -478,23 +773,131 @@ function App() {
   }, [scannerOpen]);
 
   const handleGenerateReconnect = async () => {
-    if (!profile || !activePeerId) return;
+    if (!profile || !activePeerId || actionBusy) return;
+    setActionBusy(true);
     try {
       const mgr = ensureManager();
-      const offer = await mgr.createOffer({ peerId: activePeerId, localPeerId: profile.id, localIdentity: profile.identityFingerprint, restartIce: true });
-      setGeneratedSignal(toSignalString(offer));
+      const offer = await mgr.createOffer({
+        peerId: activePeerId,
+        localPeerId: profile.id,
+        localIdentity: profile.identityFingerprint,
+        restartIce: true,
+      });
+      const reconnectPayload = makeEnvelope('reconnect', {
+        signal: offer,
+      });
+      setGeneratedSignal(encodePayload(reconnectPayload));
+      setConnectionFlow({
+        state: 'reconnecting',
+        payload: reconnectPayload,
+        responsePayload: null,
+        sas: '',
+      });
       setScreen('addpeer');
-      setAddPeerTab('mycode');
-    } catch (e) { setErrorText(e.message); }
+      setAddPeerTab('invite');
+      showToast('Reconnect QR created', 'success');
+    } catch (e) {
+      console.error('[reconnect:create]', e);
+      showToast('Could not create reconnect code. Try again.', 'error');
+    } finally {
+      setActionBusy(false);
+    }
   };
 
+  const getQrCanvas = () => document.getElementById('veil-qr-canvas');
+
+  const getQrBlob = () =>
+    new Promise((resolve, reject) => {
+      const canvas = getQrCanvas();
+      if (!canvas) {
+        reject(new Error('QR canvas not ready'));
+        return;
+      }
+
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Failed to create PNG'));
+            return;
+          }
+          resolve(blob);
+        }, 'image/png');
+        return;
+      }
+
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        fetch(dataUrl)
+          .then((res) => res.blob())
+          .then(resolve)
+          .catch(reject);
+      } catch (error) {
+        reject(error);
+      }
+    });
+
   const copyToClipboard = async (text) => {
-    try { await navigator.clipboard.writeText(text); } catch { setErrorText('Clipboard write failed.'); }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('복사됨 ✅', 'success');
+    } catch (error) {
+      console.error('[clipboard]', error);
+      showToast('복사 실패 - 다시 시도', 'error');
+    }
+  };
+
+  const saveQrImage = async () => {
+    try {
+      const blob = await getQrBlob();
+      const url = URL.createObjectURL(blob);
+      const ua = navigator.userAgent || '';
+      const isIosSafari =
+        /iP(hone|ad|od)/.test(ua) &&
+        /Safari/.test(ua) &&
+        !/CriOS|FxiOS|EdgiOS/.test(ua);
+
+      if (isIosSafari) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        showToast('이미지가 열렸어요. 길게 눌러 저장해 주세요.', 'info');
+        return;
+      }
+
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `veil-qr-${Date.now()}.png`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      showToast('이미지 저장됨', 'success');
+    } catch (error) {
+      console.error('[qr:save]', error);
+      showToast('이미지 저장에 실패했어요. 다시 시도해 주세요.', 'error');
+    }
+  };
+
+  const shareQrImage = async () => {
+    try {
+      const blob = await getQrBlob();
+      const file = new File([blob], 'veil-qr.png', { type: 'image/png' });
+      if (!navigator.canShare || !navigator.canShare({ files: [file] })) {
+        showToast("이 브라우저는 이미지 공유를 지원하지 않아요. '이미지로 저장'을 사용해 주세요.", 'info');
+        return;
+      }
+      await navigator.share({
+        files: [file],
+        title: 'Veil QR',
+      });
+      showToast('공유됨', 'success');
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      console.error('[qr:share]', error);
+      showToast('공유에 실패했어요. 이미지로 저장을 사용해 주세요.', 'error');
+    }
   };
 
   const backupState = () => {
     try {
-      const payload = makeBackupPayload({ profile, peers, messagesByPeer });
+      const payload = makeBackupPayload({ profile, peers, pendingConnections, messagesByPeer });
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -502,9 +905,9 @@ function App() {
       anchor.download = `veil-backup-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setErrorText('');
+      showToast('Backup saved', 'success');
     } catch {
-      setErrorText('Backup failed');
+      showToast('Backup failed', 'error');
     }
   };
 
@@ -519,14 +922,15 @@ function App() {
       const restored = parseBackupPayload(parsed);
       setProfile(restored.profile);
       setPeers(restored.peers);
+      setPendingConnections(restored.pendingConnections || []);
       setMessagesByPeer(restored.messagesByPeer);
       setScreen(restored.profile ? 'contacts' : 'onboarding');
       setActiveTab('chats');
       setActivePeerId(null);
       await setPersistedState(restored);
-      setErrorText('');
+      showToast('Backup restored', 'success');
     } catch {
-      setErrorText('Restore failed: invalid backup file');
+      showToast('Restore failed. Invalid backup file.', 'error');
     } finally {
       event.target.value = '';
     }
@@ -861,9 +1265,13 @@ function App() {
         {/* Reconnect Banner */}
         {!connected && connState !== CONNECTION_STATES.CONNECTING && (
           <div className="reconnect-banner">
-            <span className="reconnect-label">Connection interrupted</span>
-            <button className="reconnect-btn" onClick={handleGenerateReconnect}>
-              Reconnect
+            <span className="reconnect-label">연결이 끊겼어요</span>
+            <button
+              className="reconnect-btn"
+              onClick={handleGenerateReconnect}
+              disabled={actionBusy}
+            >
+              {actionBusy ? '...' : '재연결'}
             </button>
           </div>
         )}
@@ -890,132 +1298,194 @@ function App() {
   };
 
   /* ������ Render: Add Peer Screen ���������������������������������� */
-  const renderAddPeer = () => (
-    <section className="add-peer-screen" data-testid="add-peer-screen">
-      <div className="add-peer-header">
-        <button className="chat-back-btn" onClick={() => setScreen('contacts')}>
-          <ChevronLeft size={24} />
-        </button>
-        <h2 className="add-peer-title">New Connection</h2>
-        <button className="onboarding-help-btn" aria-label="Help">?</button>
-      </div>
+  const renderAddPeer = () => {
+    const shareSupported =
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function';
 
-      <div className="add-peer-body">
-        {/* Tabs */}
-        <div className="add-peer-tabs">
-          <button
-            className={`add-peer-tab ${addPeerTab === 'mycode' ? 'active' : ''}`}
-            onClick={() => setAddPeerTab('mycode')}
-          >
-            My Code
+    const resetFlow = () => {
+      setConnectionFlow({
+        state: 'idle',
+        payload: null,
+        responsePayload: null,
+        sas: '',
+      });
+      setGeneratedSignal('');
+    };
+
+    return (
+      <section className="add-peer-screen" data-testid="add-peer-screen">
+        <div className="add-peer-header">
+          <button className="chat-back-btn" onClick={() => setScreen('contacts')}>
+            <ChevronLeft size={24} />
           </button>
-          <button
-            className={`add-peer-tab ${addPeerTab === 'scan' ? 'active' : ''}`}
-            onClick={() => setAddPeerTab('scan')}
-          >
-            Scan Peer
+          <h2 className="add-peer-title">New Connection</h2>
+          <button className="onboarding-help-btn" aria-label="Help">
+            ?
           </button>
         </div>
 
-        {addPeerTab === 'mycode' ? (
-          <div className="qr-section">
-            <h2 className="qr-section-title">Secure P2P Handshake</h2>
-            <p className="qr-section-subtitle">
-              Ask your peer to scan this code to establish a direct, serverless connection.
-            </p>
-
-            {/* QR Code */}
-            <div className="qr-frame">
-              <div className="qr-frame-bl" />
-              <div className="qr-frame-br" />
-              <div className="qr-inner">
-                <QRCodeSVG value={generatedSignal || profile?.id || 'veil://init'} size={180} />
-              </div>
-            </div>
-
-            {/* ID */}
-            <div className="qr-id-display">
-              <Shield className="qr-id-icon" size={18} />
-              <span className="qr-id-text">ID: {shortId(profile?.id)}</span>
-              <button className="qr-copy-btn" onClick={() => copyToClipboard(profile?.id || '')} aria-label="Copy ID">
-                <Copy size={12} />
-              </button>
-            </div>
-
-            {/* Status */}
-            <div className="qr-status">
-              <span className="qr-status-dot" />
-              <span className="qr-status-text">Waiting for handshake...</span>
-            </div>
-
-            {/* Actions */}
-            <button className="qr-share-btn" onClick={() => copyToClipboard(generatedSignal || profile?.id || '')}>
-              <Share2 size={18} />
-              Share Code as Image
+        <div className="add-peer-body">
+          <div className="add-peer-tabs">
+            <button
+              className={`add-peer-tab ${addPeerTab === 'invite' ? 'active' : ''}`}
+              onClick={() => setAddPeerTab('invite')}
+            >
+              초대하기
             </button>
-            <button className="qr-regenerate-btn" onClick={() => { setGeneratedSignal(''); setPeerIdInput(''); }}>
-              <RefreshCw size={16} />
-              Regenerate Offer
+            <button
+              className={`add-peer-tab ${addPeerTab === 'receive' ? 'active' : ''}`}
+              onClick={() => setAddPeerTab('receive')}
+            >
+              초대받기
             </button>
+          </div>
 
-            {/* Privacy */}
-            <div className="qr-privacy-notice">
-              <span className="qr-privacy-dot" />
-              Private & Direct: No data touches a central server.
-            </div>
+          {addPeerTab === 'invite' ? (
+            <div className="qr-section">
+              <h2 className="qr-section-title">초대 QR 만들기</h2>
+              <p className="qr-section-subtitle">
+                상대가 이 QR을 스캔하면 다음 단계로 넘어가요.
+              </p>
 
-            {generatedSignal && (
-              <div style={{ marginTop: 16 }}>
-                <span className="scan-field-label">Generated Signal</span>
-                <div className="signal-display">{generatedSignal}</div>
-                <button className="scan-secondary-btn" style={{ marginTop: 8 }} onClick={() => copyToClipboard(generatedSignal)}>
-                  Copy Signal
+              {!generatedSignal ? (
+                <button
+                  className="scan-submit-btn"
+                  onClick={handleCreateInviteQr}
+                  disabled={actionBusy}
+                >
+                  {actionBusy ? '처리 중...' : '초대 QR 만들기'}
                 </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="scan-section">
-            <button className="scan-submit-btn" onClick={openQrScanner}>
-              Scan QR Code
-            </button>
+              ) : (
+                <>
+                  <div className="qr-frame">
+                    <div className="qr-frame-bl" />
+                    <div className="qr-frame-br" />
+                    <div className="qr-inner">
+                      <QRCodeCanvas id="veil-qr-canvas" value={generatedSignal} size={180} />
+                    </div>
+                  </div>
 
-            <span className="scan-field-label">Target Peer ID</span>
-            <input
-              className="scan-input"
-              value={peerIdInput}
-              onChange={(e) => setPeerIdInput(e.target.value)}
-              placeholder="Enter peer ID"
-            />
+                  <div className="qr-status">
+                    <span className="qr-status-dot" />
+                    <span className="qr-status-text">
+                      {connectionFlow.state === 'accept_created'
+                        ? '상대가 이 QR을 스캔하면 연결이 완료돼요.'
+                        : '상대가 이 QR을 스캔하면 다음 단계로 이동해요.'}
+                    </span>
+                  </div>
 
-            <span className="scan-field-label">Peer Name (optional)</span>
-            <input
-              className="scan-input"
-              value={peerNameInput}
-              onChange={(e) => setPeerNameInput(e.target.value)}
-              placeholder="e.g. Alice"
-            />
+                  <button
+                    className="qr-share-btn"
+                    onClick={() => copyToClipboard(generatedSignal)}
+                    disabled={actionBusy}
+                  >
+                    <Copy size={18} />
+                    코드 복사
+                  </button>
+                  <button
+                    className="qr-share-btn"
+                    onClick={saveQrImage}
+                    disabled={actionBusy}
+                  >
+                    <FileText size={18} />
+                    이미지로 저장
+                  </button>
+                  {shareSupported ? (
+                    <button
+                      className="qr-share-btn"
+                      onClick={shareQrImage}
+                      disabled={actionBusy}
+                    >
+                      <Share2 size={18} />
+                      공유
+                    </button>
+                  ) : null}
 
-            <button className="scan-submit-btn" onClick={handleGenerateOffer}>
-              Create Connection Code
-            </button>
+                  <button className="qr-regenerate-btn" onClick={resetFlow}>
+                    <RefreshCw size={16} />
+                    다시 만들기
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="scan-section">
+              {connectionFlow.state === 'invite_scanned' && connectionFlow.payload ? (
+                <div className="onboarding-info-card">
+                  <div className="onboarding-info-content">
+                    <h4>친구 요청</h4>
+                    <p>
+                      {(connectionFlow.payload.name || '상대')}님과 연결할까요?
+                    </p>
+                    <p style={{ marginTop: 8 }}>
+                      둘 다 같은 코드가 보이면 안전해요: {connectionFlow.sas || '------'}
+                    </p>
+                    <div className="settings-actions" style={{ marginTop: 12 }}>
+                      <button
+                        className="scan-submit-btn"
+                        onClick={handleAcceptInvite}
+                        disabled={actionBusy}
+                      >
+                        {actionBusy ? '처리 중...' : '수락'}
+                      </button>
+                      <button
+                        className="scan-secondary-btn"
+                        onClick={() => {
+                          setConnectionFlow({
+                            state: 'idle',
+                            payload: null,
+                            responsePayload: null,
+                            sas: '',
+                          });
+                          showToast('요청을 거절했어요', 'info');
+                        }}
+                        disabled={actionBusy}
+                      >
+                        거절
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    className="scan-submit-btn"
+                    onClick={openQrScanner}
+                    disabled={actionBusy}
+                  >
+                    QR 스캔하기
+                  </button>
 
-            <span className="scan-field-label" style={{ marginTop: 12 }}>Paste Offer/Answer Signal</span>
-            <textarea
-              className="scan-textarea"
-              value={manualSignal}
-              onChange={(e) => setManualSignal(e.target.value)}
-              placeholder="VEIL1:..."
-            />
+                  <button
+                    className="scan-secondary-btn"
+                    onClick={() => setAdvancedOpen((prev) => !prev)}
+                  >
+                    텍스트 코드로 연결(고급)
+                  </button>
 
-            <button className="scan-secondary-btn" onClick={handleProcessSignal}>
-              Complete Connection
-            </button>
-          </div>
-        )}
-      </div>
-    </section>
-  );
+                  {advancedOpen ? (
+                    <>
+                      <textarea
+                        className="scan-textarea"
+                        value={manualSignal}
+                        onChange={(e) => setManualSignal(e.target.value)}
+                        placeholder="VEIL1: 코드를 붙여넣기"
+                      />
+                      <button className="scan-secondary-btn" onClick={handleProcessSignal}>
+                        코드 확인
+                      </button>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  };
 
   /* ������ Render: Nodes Screen ���������������������������������������� */
   const renderConnections = () => (
@@ -1167,7 +1637,21 @@ function App() {
               <video ref={scannerVideoRef} className="scanner-video" muted playsInline />
             </div>
             <p className="scanner-hint">Align the code inside the frame.</p>
-            {scannerError && <p className="scanner-error">{scannerError}</p>}
+            {scannerError ? (
+              <div className="scanner-error">
+                <strong>이 QR 코드는 Veil용이 아니에요</strong>
+                <p>상대가 Veil에서 만든 초대 QR인지 확인하고 다시 스캔해 주세요.</p>
+                <button
+                  className="scan-secondary-btn"
+                  onClick={() => {
+                    setScannerError('');
+                    scannerHandlingRef.current = false;
+                  }}
+                >
+                  다시 스캔
+                </button>
+              </div>
+            ) : null}
             <button className="scan-secondary-btn" onClick={closeQrScanner}>
               Close
             </button>
@@ -1175,9 +1659,13 @@ function App() {
         </div>
       )}
 
-      {errorText && (
-        <div className="error-toast" role="alert" onClick={() => setErrorText('')}>
-          Warning: {errorText}
+      {toast && (
+        <div
+          className={`error-toast ${toast.tone === 'success' ? 'toast-success' : ''} ${toast.tone === 'info' ? 'toast-info' : ''}`}
+          role="status"
+          onClick={() => setToast(null)}
+        >
+          {toast.message}
         </div>
       )}
     </div>

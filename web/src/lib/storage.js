@@ -43,6 +43,9 @@ const withStore = async (mode, callback) => {
 export const normalizeState = (raw) => ({
   profile: raw?.profile || null,
   peers: Array.isArray(raw?.peers) ? raw.peers : [],
+  pendingConnections: Array.isArray(raw?.pendingConnections)
+    ? raw.pendingConnections
+    : [],
   messagesByPeer:
     raw?.messagesByPeer && typeof raw.messagesByPeer === 'object'
       ? raw.messagesByPeer
