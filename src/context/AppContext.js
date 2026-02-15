@@ -18,6 +18,7 @@ import EncryptionService from '../services/EncryptionService';
 import SignalingService from '../services/SignalingService';
 import ReconnectionManager from '../services/ReconnectionManager';
 import VoiceMessageService from '../services/VoiceMessageService';
+import InvitationService from '../services/InvitationService';
 
 const AppContext = createContext(null);
 
@@ -139,6 +140,10 @@ export const AppProvider = ({children}) => {
   const [networkOnline, setNetworkOnline] = useState(true);
   const [activeChatPeerId, setActiveChatPeerId] = useState(null);
   const [appUnlocked, setAppUnlocked] = useState(true);
+  const [pendingSentInvites, setPendingSentInvites] = useState({});
+  const [pendingReceivedInvite, setPendingReceivedInvite] = useState(null);
+  const [pendingAcceptedInvites, setPendingAcceptedInvites] = useState({});
+  const [handshakeStates, setHandshakeStates] = useState({});
   const webrtcRef = useRef(new WebRTCService());
   const profileRef = useRef(profile);
   const appStateRef = useRef(AppState.currentState);
@@ -720,6 +725,167 @@ export const AppProvider = ({children}) => {
       })
     );
   }, []);
+
+  const createInviteCode = useCallback(() => {
+    if (!profile) {
+      throw new Error('Profile is not initialized');
+    }
+
+    const invitePayload = {
+      v: 1,
+      type: 'invite',
+      from: profile.id,
+      name: profile.name || 'Unknown',
+      nonce: generateId(),
+      timestamp: now()
+    };
+
+    setPendingSentInvites((previous) => ({
+      ...previous,
+      [invitePayload.nonce]: invitePayload
+    }));
+
+    return {
+      payload: invitePayload,
+      code: InvitationService.encodePayload(invitePayload)
+    };
+  }, [profile]);
+
+  const registerReceivedInvite = useCallback((invitePayload) => {
+    setPendingReceivedInvite(invitePayload || null);
+  }, []);
+
+  const declineReceivedInvite = useCallback(() => {
+    setPendingReceivedInvite(null);
+  }, []);
+
+  const acceptInvite = useCallback(
+    (invitePayload) => {
+      if (!profile) {
+        throw new Error('Profile is not initialized');
+      }
+
+      const invite = invitePayload || pendingReceivedInvite;
+      if (!invite || invite.type !== 'invite') {
+        throw new Error('No pending invite');
+      }
+
+      const remotePeerId = String(invite.from || '').trim();
+      if (!remotePeerId) {
+        throw new Error('Invalid invite sender');
+      }
+
+      const acceptPayload = {
+        v: 1,
+        type: 'accept',
+        from: profile.id,
+        to: invite.from,
+        nonce: invite.nonce
+      };
+
+      setPendingAcceptedInvites((previous) => ({
+        ...previous,
+        [invite.nonce]: {
+          invite,
+          acceptPayload
+        }
+      }));
+      setPendingReceivedInvite(null);
+
+      return {
+        payload: acceptPayload,
+        code: InvitationService.encodePayload(acceptPayload),
+        peerId: remotePeerId,
+        nonce: invite.nonce
+      };
+    },
+    [pendingReceivedInvite, profile]
+  );
+
+  const confirmAcceptedInviteConnection = useCallback(
+    (inviteNonce) => {
+      const nonce = String(inviteNonce || '').trim();
+      if (!nonce) {
+        throw new Error('Invite nonce is required');
+      }
+
+      const pending = pendingAcceptedInvites[nonce];
+      if (!pending) {
+        throw new Error('No pending accepted invite');
+      }
+
+      const remotePeerId = String(pending?.invite?.from || '').trim();
+      if (!remotePeerId) {
+        throw new Error('Invalid invite sender');
+      }
+
+      const fallbackName = `Peer ${remotePeerId.slice(0, 6)}`;
+      addOrUpdatePeer({
+        id: remotePeerId,
+        name: pending.invite.name || fallbackName
+      });
+      setHandshakeStates((previous) => ({
+        ...previous,
+        [remotePeerId]: CONNECTION_STATES.CONNECTED
+      }));
+      setPendingAcceptedInvites((previous) => {
+        const next = {...previous};
+        delete next[nonce];
+        return next;
+      });
+
+      return {
+        peerId: remotePeerId
+      };
+    },
+    [addOrUpdatePeer, pendingAcceptedInvites]
+  );
+
+  const completeInviteWithAccept = useCallback(
+    (acceptPayload) => {
+      if (!profile) {
+        throw new Error('Profile is not initialized');
+      }
+      if (!acceptPayload || acceptPayload.type !== 'accept') {
+        throw new Error('Invalid accept payload');
+      }
+
+      if (acceptPayload.to !== profile.id) {
+        throw new Error('Accept target does not match this user');
+      }
+
+      const invite = pendingSentInvites[acceptPayload.nonce];
+      if (!invite) {
+        throw new Error('No matching pending invite');
+      }
+
+      const remotePeerId = String(acceptPayload.from || '').trim();
+      if (!remotePeerId) {
+        throw new Error('Invalid peer ID');
+      }
+
+      const fallbackName = `Peer ${remotePeerId.slice(0, 6)}`;
+      addOrUpdatePeer({
+        id: remotePeerId,
+        name: fallbackName
+      });
+      setHandshakeStates((previous) => ({
+        ...previous,
+        [remotePeerId]: CONNECTION_STATES.CONNECTED
+      }));
+
+      setPendingSentInvites((previous) => {
+        const next = {...previous};
+        delete next[acceptPayload.nonce];
+        return next;
+      });
+
+      return {
+        peerId: remotePeerId
+      };
+    },
+    [addOrUpdatePeer, pendingSentInvites, profile]
+  );
 
   const updateOutgoingMessageStatus = useCallback((peerId, messageId, status) => {
     setMessagesByPeer((previous) => {
@@ -1309,9 +1475,12 @@ export const AppProvider = ({children}) => {
       if (profile && peerId === profile.id) {
         return CONNECTION_STATES.CONNECTED;
       }
+      if (handshakeStates[peerId] === CONNECTION_STATES.CONNECTED) {
+        return CONNECTION_STATES.CONNECTED;
+      }
       return connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED;
     },
-    [connectionStates, profile]
+    [connectionStates, handshakeStates, profile]
   );
 
   const getReconnectSignalForPeer = useCallback(
@@ -1363,6 +1532,9 @@ export const AppProvider = ({children}) => {
       peers,
       messagesByPeer,
       reconnectSignals,
+      pendingSentInvites,
+      pendingReceivedInvite,
+      pendingAcceptedInvites,
       networkOnline,
       appUnlocked,
       activeChatPeerId,
@@ -1370,6 +1542,12 @@ export const AppProvider = ({children}) => {
       createOrUpdateProfile,
       addOrUpdatePeer,
       togglePeerPinned,
+      createInviteCode,
+      registerReceivedInvite,
+      declineReceivedInvite,
+      acceptInvite,
+      confirmAcceptedInviteConnection,
+      completeInviteWithAccept,
       sendMessageToPeer,
       sendAttachmentToPeer,
       sendReactionToMessage,
@@ -1398,12 +1576,21 @@ export const AppProvider = ({children}) => {
       peers,
       messagesByPeer,
       reconnectSignals,
+      pendingSentInvites,
+      pendingReceivedInvite,
+      pendingAcceptedInvites,
       networkOnline,
       appUnlocked,
       activeChatPeerId,
       createOrUpdateProfile,
       addOrUpdatePeer,
       togglePeerPinned,
+      createInviteCode,
+      registerReceivedInvite,
+      declineReceivedInvite,
+      acceptInvite,
+      confirmAcceptedInviteConnection,
+      completeInviteWithAccept,
       sendMessageToPeer,
       sendAttachmentToPeer,
       sendReactionToMessage,

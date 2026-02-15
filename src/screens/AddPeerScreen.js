@@ -1,31 +1,57 @@
-﻿import React, {useMemo, useState} from 'react';
+﻿import React, {useMemo, useRef, useState} from 'react';
 import {
   Alert,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   TouchableOpacity,
   View
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {useApp} from '../context/AppContext';
 import QRScanner from '../components/QRScanner';
+import InvitationService from '../services/InvitationService';
 import {useTheme} from '../context/ThemeContext';
 
-const AddPeerScreen = ({route, navigation}) => {
-  const prefillPeerId = route.params?.prefillPeerId || '';
-  const [activeTab, setActiveTab] = useState('scan');
-  const [peerId, setPeerId] = useState(prefillPeerId);
-  const [peerName, setPeerName] = useState('');
-  const [signalText, setSignalText] = useState('');
-  const [manualSignal, setManualSignal] = useState('');
-  const [scanEnabled, setScanEnabled] = useState(false);
-  const [busy, setBusy] = useState(false);
+const FLOW_STATES = {
+  IDLE: 'idle',
+  INVITE_CREATED: 'invite_created',
+  INVITE_RECEIVED: 'invite_received',
+  WAITING_ACCEPT_SCAN: 'waiting_accept_scan',
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected'
+};
 
-  const {profile, addOrUpdatePeer, createOfferSignal, handleScannedSignal} = useApp();
+const INVALID_CODE_MESSAGE = 'This code isnt a valid Veil invite.';
+
+const AddPeerScreen = ({navigation}) => {
+  const [activeTab, setActiveTab] = useState('create');
+  const [flowState, setFlowState] = useState(FLOW_STATES.IDLE);
+  const [busy, setBusy] = useState(false);
+  const [scanEnabled, setScanEnabled] = useState(false);
+  const [manualCode, setManualCode] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [incomingInvite, setIncomingInvite] = useState(null);
+  const [acceptCode, setAcceptCode] = useState('');
+  const [pendingAcceptNonce, setPendingAcceptNonce] = useState('');
+  const [connectedPeerId, setConnectedPeerId] = useState('');
+  const recentScanRef = useRef({});
+
+  const {
+    createInviteCode,
+    registerReceivedInvite,
+    declineReceivedInvite,
+    acceptInvite,
+    confirmAcceptedInviteConnection,
+    completeInviteWithAccept
+  } = useApp();
+
   const {colors, spacing, typography} = useTheme();
 
   const styles = useMemo(
@@ -81,23 +107,6 @@ const AddPeerScreen = ({route, navigation}) => {
           color: colors.textPrimary,
           letterSpacing: -0.2
         },
-        privacyBanner: {
-          marginTop: spacing.sm,
-          marginHorizontal: spacing.sm,
-          borderRadius: spacing.sm,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface01,
-          paddingVertical: spacing.xs,
-          paddingHorizontal: spacing.sm,
-          flexDirection: 'row',
-          alignItems: 'center'
-        },
-        privacyText: {
-          marginLeft: spacing.xs,
-          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
-          color: colors.textSecondary
-        },
         tabWrap: {
           marginTop: spacing.sm,
           marginHorizontal: spacing.sm,
@@ -124,6 +133,22 @@ const AddPeerScreen = ({route, navigation}) => {
         },
         tabTextActive: {
           color: colors.onPrimary
+        },
+        statusPill: {
+          marginTop: spacing.sm,
+          marginHorizontal: spacing.sm,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          paddingVertical: spacing.xxs + 2,
+          paddingHorizontal: spacing.sm,
+          alignSelf: 'flex-start'
+        },
+        statusText: {
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textSecondary,
+          textTransform: 'uppercase'
         },
         scroll: {
           flex: 1
@@ -154,21 +179,6 @@ const AddPeerScreen = ({route, navigation}) => {
           color: colors.textSecondary,
           marginTop: spacing.xxs,
           marginBottom: spacing.sm
-        },
-        input: {
-          marginTop: spacing.xs,
-          borderRadius: spacing.sm,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.surface02,
-          color: colors.textPrimary,
-          minHeight: spacing.component.inputHeight,
-          paddingHorizontal: spacing.sm
-        },
-        textArea: {
-          minHeight: 94,
-          paddingTop: spacing.xs,
-          textAlignVertical: 'top'
         },
         primaryBtn: {
           marginTop: spacing.sm,
@@ -211,20 +221,20 @@ const AddPeerScreen = ({route, navigation}) => {
           borderColor: colors.border,
           backgroundColor: colors.surface02
         },
-        idPill: {
-          marginTop: spacing.sm,
+        input: {
+          marginTop: spacing.xs,
           borderRadius: spacing.sm,
-          backgroundColor: colors.surface02,
           borderWidth: 1,
           borderColor: colors.border,
-          alignItems: 'center',
-          paddingVertical: spacing.xs + 2,
+          backgroundColor: colors.surface02,
+          color: colors.textPrimary,
+          minHeight: spacing.component.inputHeight,
           paddingHorizontal: spacing.sm
         },
-        idPillText: {
-          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
-          color: colors.textPrimary,
-          fontFamily: typography.fontFamily.mono
+        textArea: {
+          minHeight: 94,
+          paddingTop: spacing.xs,
+          textAlignVertical: 'top'
         },
         qrPanel: {
           marginTop: spacing.sm,
@@ -234,83 +244,215 @@ const AddPeerScreen = ({route, navigation}) => {
           borderRadius: spacing.sm,
           backgroundColor: '#FFFFFF'
         },
-        signalHelper: {
-          marginTop: spacing.sm,
-          ...typography.textStyle(typography.size.sm, typography.weight.regular),
-          color: colors.textSecondary
-        },
-        signalText: {
+        codeText: {
           marginTop: spacing.xs,
-          color: colors.textMuted,
-          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular)
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular),
+          color: colors.textMuted
+        },
+        acceptTitle: {
+          ...typography.textStyle(typography.size.lg, typography.weight.bold),
+          color: colors.textPrimary,
+          marginBottom: spacing.xs
+        },
+        acceptText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary,
+          marginBottom: spacing.sm
+        },
+        buttonRow: {
+          flexDirection: 'row',
+          marginTop: spacing.xs
+        },
+        halfBtn: {
+          flex: 1,
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.sm,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02
+        },
+        halfBtnPrimary: {
+          backgroundColor: colors.primary,
+          borderColor: colors.primary,
+          marginRight: spacing.xs
+        },
+        halfBtnDanger: {
+          borderColor: colors.error,
+          marginLeft: spacing.xs
+        },
+        halfBtnText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary
+        },
+        halfBtnTextPrimary: {
+          color: colors.onPrimary
+        },
+        halfBtnTextDanger: {
+          color: colors.error
         }
       }),
     [colors, spacing, typography]
   );
 
-  const myShortId = useMemo(() => {
-    const id = profile?.id || '';
-    if (id.length < 14) {
-      return id;
+  const showToast = (message) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+      return;
     }
-    return `${id.slice(0, 10)}...${id.slice(-6)}`;
-  }, [profile]);
+    Alert.alert(message);
+  };
 
-  const onGenerateOffer = async () => {
-    const normalizedPeerId = peerId.trim();
-    if (!normalizedPeerId) {
-      Alert.alert('친구 고유 번호를 입력해 주세요', '코드를 만들려면 상대 ID가 필요해요.');
+  const onCopyCode = (code) => {
+    Clipboard.setString(String(code || ''));
+    showToast('Copied ');
+  };
+
+  const onShareCode = async (code) => {
+    try {
+      await Share.share({message: String(code || '')});
+    } catch (error) {
+      Alert.alert('Share failed', 'Could not open share sheet.');
+    }
+  };
+
+  const markScanSeen = (rawCode) => {
+    const key = String(rawCode || '').trim();
+    if (!key) {
+      return false;
+    }
+    const nowTs = Date.now();
+    const previousTs = recentScanRef.current[key] || 0;
+    if (nowTs - previousTs < 4000) {
+      return true;
+    }
+    recentScanRef.current[key] = nowTs;
+    return false;
+  };
+
+  const onCreateInvite = async () => {
+    try {
+      setBusy(true);
+      const next = createInviteCode();
+      setInviteCode(next.code);
+      setFlowState(FLOW_STATES.INVITE_CREATED);
+      setActiveTab('create');
+      showToast('Invite created');
+    } catch (error) {
+      Alert.alert('Invite creation failed', error.message);
+      setFlowState(FLOW_STATES.DISCONNECTED);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onProcessCode = async (rawCodeInput) => {
+    const rawCode = String(rawCodeInput || '').trim();
+    if (!rawCode) {
+      return;
+    }
+    if (markScanSeen(rawCode)) {
       return;
     }
 
     try {
       setBusy(true);
-      addOrUpdatePeer({
-        id: normalizedPeerId,
-        name: peerName.trim() || `친구 ${normalizedPeerId.slice(0, 6)}`
-      });
-      const created = await createOfferSignal(normalizedPeerId);
-      setSignalText(created);
-      setActiveTab('myid');
-      Alert.alert('연결 코드 생성 완료', '코드를 공유하고 상대 코드도 받아 연결해 주세요.');
+      const decoded = InvitationService.decodePayload(rawCode);
+      if (!decoded.ok) {
+        Alert.alert('Invalid code', INVALID_CODE_MESSAGE);
+        setFlowState(FLOW_STATES.DISCONNECTED);
+        return;
+      }
+
+      const payload = decoded.payload;
+
+      if (InvitationService.isInvitePayload(payload)) {
+        registerReceivedInvite(payload);
+        setIncomingInvite(payload);
+        setAcceptCode('');
+        setPendingAcceptNonce('');
+        setConnectedPeerId('');
+        setFlowState(FLOW_STATES.INVITE_RECEIVED);
+        setScanEnabled(false);
+        setManualCode('');
+        return;
+      }
+
+      if (InvitationService.isAcceptPayload(payload)) {
+        const completed = completeInviteWithAccept(payload);
+        setIncomingInvite(null);
+        setAcceptCode('');
+        setPendingAcceptNonce('');
+        setConnectedPeerId(completed.peerId);
+        setFlowState(FLOW_STATES.CONNECTED);
+        setScanEnabled(false);
+        setManualCode('');
+        showToast('Connection completed');
+        return;
+      }
+
+      Alert.alert('Invalid code', INVALID_CODE_MESSAGE);
+      setFlowState(FLOW_STATES.DISCONNECTED);
     } catch (error) {
-      Alert.alert('코드 생성에 실패했어요. 다시 시도해 주세요', error.message);
+      Alert.alert('Invalid code', INVALID_CODE_MESSAGE);
+      setFlowState(FLOW_STATES.DISCONNECTED);
     } finally {
       setBusy(false);
     }
   };
 
-  const processSignal = async (rawSignal) => {
+  const onAcceptInvite = async () => {
     try {
       setBusy(true);
-      const result = await handleScannedSignal(rawSignal, peerName.trim());
-
-      if (result.status === 'answer-created') {
-        setSignalText(result.responseSignal);
-        setPeerId(result.peerId);
-        setActiveTab('myid');
-        Alert.alert('연결 코드가 준비됐어요', '상대가 이 코드를 스캔하면 연결이 완료됩니다.');
-      } else {
-        setPeerId(result.peerId);
-        Alert.alert('연결 완료', '이제 채팅을 시작할 수 있어요.');
-        navigation.goBack();
-      }
+      const accepted = acceptInvite(incomingInvite);
+      setAcceptCode(accepted.code);
+      setPendingAcceptNonce(accepted.nonce);
+      setConnectedPeerId('');
+      setFlowState(FLOW_STATES.WAITING_ACCEPT_SCAN);
     } catch (error) {
-      Alert.alert('코드를 확인해 주세요', error.message);
+      Alert.alert('Accept failed', error.message);
+      setFlowState(FLOW_STATES.DISCONNECTED);
     } finally {
       setBusy(false);
-      setScanEnabled(false);
     }
   };
 
-  const onShareId = async () => {
-    try {
-      await Share.share({
-        message: `내 Session ID: ${profile?.id || ''}`
-      });
-    } catch (error) {
-      Alert.alert('공유 실패', '공유 창을 열 수 없어요.');
+  const onDeclineInvite = () => {
+    declineReceivedInvite();
+    setIncomingInvite(null);
+    setAcceptCode('');
+    setPendingAcceptNonce('');
+    setConnectedPeerId('');
+    setFlowState(FLOW_STATES.IDLE);
+  };
+
+  const onCompleteAcceptedInvite = () => {
+    if (!pendingAcceptNonce) {
+      return;
     }
+
+    try {
+      setBusy(true);
+      const completed = confirmAcceptedInviteConnection(pendingAcceptNonce);
+      setConnectedPeerId(completed.peerId);
+      setPendingAcceptNonce('');
+      setFlowState(FLOW_STATES.CONNECTED);
+      showToast('Connection completed');
+    } catch (error) {
+      Alert.alert('Connection failed', error.message);
+      setFlowState(FLOW_STATES.DISCONNECTED);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onOpenConnectedChat = () => {
+    if (!connectedPeerId || flowState !== FLOW_STATES.CONNECTED) {
+      return;
+    }
+    showToast('Connection completed');
+    navigation.navigate('Chat', {peerId: connectedPeerId});
   };
 
   return (
@@ -323,46 +465,103 @@ const AddPeerScreen = ({route, navigation}) => {
           style={styles.iconBtn}
           onPress={() => navigation.goBack()}
           accessibilityRole="button"
-          accessibilityLabel="뒤로 가기">
+          accessibilityLabel="Back">
           <MaterialIcons name="close" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>새 Session 연결</Text>
+        <Text style={styles.headerTitle}>Veil Connection</Text>
         <View style={styles.iconPlaceholder} />
-      </View>
-
-      <View style={styles.privacyBanner}>
-        <MaterialIcons name="shield" size={16} color={colors.success} />
-        <Text style={styles.privacyText}>초대 코드와 메시지는 E2E 암호화로 보호됩니다</Text>
       </View>
 
       <View style={styles.tabWrap}>
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'scan' && styles.tabBtnActive]}
-          onPress={() => setActiveTab('scan')}
+          style={[styles.tabBtn, activeTab === 'create' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('create')}
           accessibilityRole="button"
-          accessibilityLabel="QR 스캔 탭 열기">
-          <Text style={[styles.tabText, activeTab === 'scan' && styles.tabTextActive]}>
-            QR 스캔
+          accessibilityLabel="Create invite tab">
+          <Text style={[styles.tabText, activeTab === 'create' && styles.tabTextActive]}>
+            Create Invite
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'myid' && styles.tabBtnActive]}
-          onPress={() => setActiveTab('myid')}
+          style={[styles.tabBtn, activeTab === 'scan' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('scan')}
           accessibilityRole="button"
-          accessibilityLabel="내 Session ID 탭 열기">
-          <Text style={[styles.tabText, activeTab === 'myid' && styles.tabTextActive]}>
-            내 Session ID
+          accessibilityLabel="Scan invite tab">
+          <Text style={[styles.tabText, activeTab === 'scan' && styles.tabTextActive]}>
+            Scan Invite
           </Text>
         </TouchableOpacity>
       </View>
 
+      <View style={styles.statusPill}>
+        <Text style={styles.statusText}>{flowState}</Text>
+      </View>
+
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        {activeTab === 'scan' ? (
+        {activeTab === 'create' ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Create a Veil Invite</Text>
+            <Text style={styles.sectionDesc}>
+              Create a one-time invitation code. Peer is not created until accept handshake completes.
+            </Text>
+
+            <TouchableOpacity
+              disabled={busy}
+              style={[styles.primaryBtn, busy && styles.disabledBtn]}
+              onPress={onCreateInvite}
+              accessibilityRole="button"
+              accessibilityLabel="Create invite">
+              <MaterialIcons name="bolt" size={18} color={colors.onPrimary} />
+              <Text style={styles.primaryBtnText}>Create Invite</Text>
+            </TouchableOpacity>
+
+            {inviteCode ? (
+              <>
+                <View style={styles.qrPanel}>
+                  <QRCode value={inviteCode} size={210} />
+                </View>
+                <Text selectable style={styles.codeText}>
+                  {inviteCode}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.secondaryBtn}
+                  onPress={() => onCopyCode(inviteCode)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy invite code">
+                  <MaterialIcons name="content-copy" size={18} color={colors.textPrimary} />
+                  <Text style={styles.secondaryBtnText}>Copy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.secondaryBtn}
+                  onPress={() => onShareCode(inviteCode)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share invite code">
+                  <MaterialIcons name="share" size={18} color={colors.textPrimary} />
+                  <Text style={styles.secondaryBtnText}>Share</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.secondaryBtn}
+                  onPress={() => {
+                    setActiveTab('scan');
+                    setFlowState(FLOW_STATES.WAITING_ACCEPT_SCAN);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Scan accept code">
+                  <MaterialIcons name="qr-code-scanner" size={18} color={colors.textPrimary} />
+                  <Text style={styles.secondaryBtnText}>Scan Accept</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </View>
+        ) : (
           <>
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>받은 Session 코드를 스캔하거나 붙여넣기</Text>
+              <Text style={styles.sectionTitle}>Scan Invite</Text>
               <Text style={styles.sectionDesc}>
-                친구가 보낸 QR 또는 텍스트 코드를 입력해 안전하게 연결하세요.
+                Scan a VEIL1 code or paste manually.
               </Text>
 
               <TouchableOpacity
@@ -370,115 +569,137 @@ const AddPeerScreen = ({route, navigation}) => {
                 style={[styles.primaryBtn, busy && styles.disabledBtn]}
                 onPress={() => setScanEnabled((value) => !value)}
                 accessibilityRole="button"
-                accessibilityLabel={scanEnabled ? '스캐너 중지' : '스캐너 시작'}>
+                accessibilityLabel={scanEnabled ? 'Stop scanner' : 'Scan invite'}>
                 <MaterialIcons
                   name={scanEnabled ? 'stop-circle' : 'qr-code-scanner'}
                   size={18}
                   color={colors.onPrimary}
                 />
                 <Text style={styles.primaryBtnText}>
-                  {scanEnabled ? '스캐너 중지' : '스캐너 시작'}
+                  {scanEnabled ? 'Stop Scanner' : 'Scan Invite'}
                 </Text>
               </TouchableOpacity>
 
               {scanEnabled ? (
                 <View style={styles.scannerWrap}>
-                  <QRScanner onRead={processSignal} />
+                  <QRScanner onRead={onProcessCode} />
                 </View>
               ) : null}
 
               <TextInput
-                value={manualSignal}
-                onChangeText={setManualSignal}
-                placeholder="받은 코드 붙여넣기"
+                value={manualCode}
+                onChangeText={setManualCode}
+                placeholder="Paste VEIL1 code"
                 placeholderTextColor={colors.textMuted}
                 multiline
                 style={[styles.input, styles.textArea]}
-                accessibilityLabel="받은 코드 입력"
+                accessibilityLabel="Manual invite code"
               />
 
               <TouchableOpacity
-                disabled={busy || !manualSignal.trim()}
-                style={[
-                  styles.secondaryBtn,
-                  (!manualSignal.trim() || busy) && styles.disabledBtn
-                ]}
-                onPress={() => processSignal(manualSignal)}
+                disabled={busy || !manualCode.trim()}
+                style={[styles.secondaryBtn, (busy || !manualCode.trim()) && styles.disabledBtn]}
+                onPress={() => onProcessCode(manualCode)}
                 accessibilityRole="button"
-                accessibilityLabel="연결하기">
+                accessibilityLabel="Process code">
                 <MaterialIcons name="link" size={18} color={colors.textPrimary} />
-                <Text style={styles.secondaryBtnText}>연결하기</Text>
+                <Text style={styles.secondaryBtnText}>Process Code</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>상대와 Session 연결 코드 만들기</Text>
-              <TextInput
-                value={peerId}
-                onChangeText={setPeerId}
-                placeholder="친구 고유 번호"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-                accessibilityLabel="친구 고유 번호"
-              />
-              <TextInput
-                value={peerName}
-                onChangeText={setPeerName}
-                placeholder="친구 이름 (선택)"
-                placeholderTextColor={colors.textMuted}
-                style={styles.input}
-                accessibilityLabel="친구 이름"
-              />
-              <TouchableOpacity
-                disabled={busy}
-                style={[styles.primaryBtn, busy && styles.disabledBtn]}
-                onPress={onGenerateOffer}
-                accessibilityRole="button"
-                accessibilityLabel="연결 코드 생성">
-                <MaterialIcons name="bolt" size={18} color={colors.onPrimary} />
-                <Text style={styles.primaryBtnText}>연결 코드 생성</Text>
-              </TouchableOpacity>
-            </View>
+            {flowState === FLOW_STATES.INVITE_RECEIVED && incomingInvite ? (
+              <View style={styles.card}>
+                <Text style={styles.acceptTitle}>Friend Request</Text>
+                <Text style={styles.acceptText}>{incomingInvite.name} wants to connect</Text>
+
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity
+                    style={[styles.halfBtn, styles.halfBtnPrimary]}
+                    onPress={onAcceptInvite}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Accept invite">
+                    <Text style={[styles.halfBtnText, styles.halfBtnTextPrimary]}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.halfBtn, styles.halfBtnDanger]}
+                    onPress={onDeclineInvite}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel="Decline invite">
+                    <Text style={[styles.halfBtnText, styles.halfBtnTextDanger]}>Decline</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
+            {acceptCode ? (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Accept QR</Text>
+                <Text style={styles.sectionDesc}>Let the sender scan this code to complete handshake.</Text>
+
+                <View style={styles.qrPanel}>
+                  <QRCode value={acceptCode} size={210} />
+                </View>
+
+                <Text selectable style={styles.codeText}>
+                  {acceptCode}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.secondaryBtn}
+                  onPress={() => onCopyCode(acceptCode)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy accept code">
+                  <MaterialIcons name="content-copy" size={18} color={colors.textPrimary} />
+                  <Text style={styles.secondaryBtnText}>Copy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.secondaryBtn}
+                  onPress={() => onShareCode(acceptCode)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share accept code">
+                  <MaterialIcons name="share" size={18} color={colors.textPrimary} />
+                  <Text style={styles.secondaryBtnText}>Share</Text>
+                </TouchableOpacity>
+
+                {flowState === FLOW_STATES.WAITING_ACCEPT_SCAN ? (
+                  <TouchableOpacity
+                    disabled={busy || !pendingAcceptNonce}
+                    style={[
+                      styles.primaryBtn,
+                      (busy || !pendingAcceptNonce) && styles.disabledBtn
+                    ]}
+                    onPress={onCompleteAcceptedInvite}
+                    accessibilityRole="button"
+                    accessibilityLabel="Complete connection">
+                    <MaterialIcons name="verified" size={18} color={colors.onPrimary} />
+                    <Text style={styles.primaryBtnText}>Complete Connection</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+              </View>
+            ) : null}
           </>
-        ) : (
+        )}
+
+        {flowState === FLOW_STATES.CONNECTED && connectedPeerId ? (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>내 Session ID</Text>
-            <Text style={styles.sectionDesc}>신뢰하는 친구에게만 공유해 주세요. 전화번호 공유는 필요하지 않습니다.</Text>
-            <View style={styles.idPill}>
-              <Text style={styles.idPillText}>{myShortId}</Text>
-            </View>
-
-            <View style={styles.qrPanel}>
-              <QRCode
-                size={210}
-                value={signalText || profile?.id || 'session-profile-id-unavailable'}
-              />
-            </View>
-
+            <Text style={styles.sectionTitle}>Connection ready</Text>
+            <Text style={styles.sectionDesc}>
+              Handshake completed. You can open the conversation now.
+            </Text>
             <TouchableOpacity
               style={styles.primaryBtn}
-              onPress={onShareId}
+              onPress={onOpenConnectedChat}
               accessibilityRole="button"
-              accessibilityLabel="내 Session ID 공유">
-              <MaterialIcons name="share" size={18} color={colors.onPrimary} />
-              <Text style={styles.primaryBtnText}>내 Session ID 공유</Text>
+              accessibilityLabel="Open chat">
+              <MaterialIcons name="chat" size={18} color={colors.onPrimary} />
+              <Text style={styles.primaryBtnText}>Open Chat</Text>
             </TouchableOpacity>
-
-            {signalText ? (
-              <>
-                <Text style={[styles.sectionTitle, {marginTop: spacing.sm}]}>대기 중인 연결 코드</Text>
-                <Text style={styles.signalHelper}>상대가 지금 이 코드를 스캔하면 연결됩니다.</Text>
-                <Text selectable style={styles.signalText}>
-                  {signalText}
-                </Text>
-              </>
-            ) : (
-              <Text style={styles.signalHelper}>QR 스캔 탭에서 연결 코드를 먼저 생성해 주세요.</Text>
-            )}
           </View>
-        )}
+        ) : null}
       </ScrollView>
     </View>
   );
