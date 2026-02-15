@@ -17,33 +17,60 @@ import {useApp} from '../context/AppContext';
 import ConnectionStatus from '../components/ConnectionStatus';
 import MessageBubble from '../components/MessageBubble';
 import AttachmentService from '../services/AttachmentService';
+import VoiceMessageService from '../services/VoiceMessageService';
 import {CONNECTION_STATES} from '../utils/constants';
 import {toShortPeerLabel} from '../utils/crypto';
 import {useTheme} from '../context/ThemeContext';
 
 const peerInitial = (name) => (name && name.trim() ? name.trim()[0].toUpperCase() : 'P');
+
 const timerOptions = [
-  {label: '끔', seconds: 0},
-  {label: '30초', seconds: 30},
-  {label: '5분', seconds: 300},
-  {label: '1시간', seconds: 3600},
-  {label: '1일', seconds: 86400}
+  {label: 'Off', seconds: 0},
+  {label: '30 sec', seconds: 30},
+  {label: '5 min', seconds: 300},
+  {label: '1 hour', seconds: 3600},
+  {label: '1 day', seconds: 86400}
+];
+
+const reactionOptions = [
+  '\u2764\uFE0F',
+  '\uD83D\uDC4D',
+  '\uD83D\uDE02',
+  '\uD83D\uDE2E',
+  '\uD83D\uDD25',
+  '\uD83D\uDC4E'
 ];
 
 const formatTimerLabel = (seconds) => {
   if (!seconds) {
-    return '사라짐 끔';
+    return 'Off';
   }
   if (seconds < 60) {
-    return `${seconds}초`;
+    return `${seconds}s`;
   }
   if (seconds < 3600) {
-    return `${Math.floor(seconds / 60)}분`;
+    return `${Math.floor(seconds / 60)}m`;
   }
   if (seconds < 86400) {
-    return `${Math.floor(seconds / 3600)}시간`;
+    return `${Math.floor(seconds / 3600)}h`;
   }
-  return `${Math.floor(seconds / 86400)}일`;
+  return `${Math.floor(seconds / 86400)}d`;
+};
+
+const getSearchText = (message) => {
+  const parts = [message?.text, message?.attachment?.name, message?.attachment?.url];
+  return parts
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const formatVoiceDuration = (seconds) => {
+  const safe = Math.max(0, Number(seconds) || 0);
+  const min = Math.floor(safe / 60);
+  const sec = safe % 60;
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 };
 
 const ChatScreen = ({route, navigation}) => {
@@ -56,17 +83,26 @@ const ChatScreen = ({route, navigation}) => {
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [showEncryptedBanner, setShowEncryptedBanner] = useState(true);
   const [reconnectExpanded, setReconnectExpanded] = useState(false);
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceStartedAt, setVoiceStartedAt] = useState(0);
+  const [voiceElapsedSec, setVoiceElapsedSec] = useState(0);
   const bannerOpacity = useRef(new Animated.Value(1)).current;
   const typingActiveRef = useRef(false);
   const typingTimeoutRef = useRef(null);
 
   const {
+    profile,
     getPeerById,
     getMessagesForPeer,
     getPeerConnectionState,
     getReconnectSignalForPeer,
     sendMessageToPeer,
     sendAttachmentToPeer,
+    sendReactionToMessage,
+    togglePeerPinned,
     markPeerRead,
     setActiveChatPeerId,
     refreshReconnectSignal,
@@ -165,7 +201,12 @@ const ChatScreen = ({route, navigation}) => {
           ...typography.textStyle(typography.size.xs - 3, typography.weight.semibold),
           color: colors.textSecondary
         },
-        timerMenuBtn: {
+        headerActions: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginLeft: spacing.xs
+        },
+        headerActionBtn: {
           width: 34,
           height: 34,
           borderRadius: 17,
@@ -212,10 +253,71 @@ const ChatScreen = ({route, navigation}) => {
           ...typography.textStyle(typography.size.xs - 2, typography.weight.semibold),
           color: colors.textSecondary
         },
+        searchBar: {
+          marginTop: spacing.xs,
+          marginHorizontal: spacing.sm,
+          minHeight: 40,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: spacing.sm
+        },
+        searchInput: {
+          flex: 1,
+          marginLeft: spacing.xxs,
+          color: colors.textPrimary,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          paddingVertical: 0
+        },
+        searchMeta: {
+          marginTop: spacing.xxs,
+          marginHorizontal: spacing.sm,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold),
+          color: colors.textSecondary
+        },
         messageList: {
           paddingHorizontal: spacing.sm - 1,
           paddingTop: spacing.sm + 2,
           paddingBottom: spacing.sm
+        },
+        emptySearchState: {
+          marginTop: spacing.lg,
+          alignItems: 'center'
+        },
+        emptySearchText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textMuted
+        },
+        voiceBanner: {
+          marginHorizontal: spacing.sm,
+          marginBottom: spacing.xs,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.warning,
+          backgroundColor: colors.surface01,
+          paddingVertical: spacing.xs - 1,
+          paddingHorizontal: spacing.sm,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        voiceDot: {
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: colors.error,
+          marginRight: spacing.xs
+        },
+        voiceBannerText: {
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: colors.textPrimary
+        },
+        voiceBannerHint: {
+          marginLeft: spacing.xs,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular),
+          color: colors.textSecondary
         },
         reconnectCard: {
           marginHorizontal: spacing.sm,
@@ -409,6 +511,14 @@ const ChatScreen = ({route, navigation}) => {
   const isPeerTyping = getPeerTypingState(peerId);
   const messages = useMemo(() => getMessagesForPeer(peerId), [getMessagesForPeer, peerId]);
 
+  const visibleMessages = useMemo(() => {
+    const query = messageSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return messages;
+    }
+    return messages.filter((message) => getSearchText(message).includes(query));
+  }, [messages, messageSearchQuery]);
+
   useEffect(() => {
     setActiveChatPeerId(peerId);
     markPeerRead(peerId);
@@ -416,6 +526,10 @@ const ChatScreen = ({route, navigation}) => {
       setActiveChatPeerId(null);
     };
   }, [markPeerRead, peerId, setActiveChatPeerId]);
+
+  useEffect(() => {
+    markPeerRead(peerId);
+  }, [markPeerRead, messages, peerId]);
 
   useEffect(() => {
     setShowEncryptedBanner(true);
@@ -443,10 +557,30 @@ const ChatScreen = ({route, navigation}) => {
     setAttachmentKind('image');
     setAttachmentUrl('');
     setAttachmentName('');
+    setShowSearchBar(false);
+    setMessageSearchQuery('');
+    setVoiceRecording(false);
+    setVoiceStartedAt(0);
+    setVoiceElapsedSec(0);
+    VoiceMessageService.cancelRecording().catch(() => null);
   }, [peerId]);
+
+  useEffect(() => {
+    if (!voiceRecording) {
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - voiceStartedAt) / 1000);
+      setVoiceElapsedSec(elapsed);
+    }, 400);
+
+    return () => clearInterval(timer);
+  }, [voiceRecording, voiceStartedAt]);
 
   useEffect(
     () => () => {
+      VoiceMessageService.cancelRecording().catch(() => null);
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
@@ -461,8 +595,16 @@ const ChatScreen = ({route, navigation}) => {
     if (!text.trim()) {
       return;
     }
+    if (voiceRecording) {
+      await VoiceMessageService.cancelRecording().catch(() => null);
+      setVoiceRecording(false);
+      setVoiceStartedAt(0);
+      setVoiceElapsedSec(0);
+    }
+
     const message = text;
     setText('');
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
@@ -475,7 +617,7 @@ const ChatScreen = ({route, navigation}) => {
     try {
       await sendMessageToPeer(peerId, message);
     } catch (error) {
-      Alert.alert('메시지를 보낼 수 없어요', error.message);
+      Alert.alert('Failed to send message', error.message);
     }
   };
 
@@ -488,7 +630,7 @@ const ChatScreen = ({route, navigation}) => {
 
   const onSendAttachment = async () => {
     if (!attachmentUrl.trim()) {
-      Alert.alert('첨부 URL을 입력해 주세요');
+      Alert.alert('Attachment URL required', 'Enter a valid URL.');
       return;
     }
 
@@ -505,7 +647,7 @@ const ChatScreen = ({route, navigation}) => {
       );
       resetAttachmentComposer();
     } catch (error) {
-      Alert.alert('첨부를 보낼 수 없어요', error.message);
+      Alert.alert('Failed to send attachment', error.message);
     } finally {
       setAttachmentBusy(false);
     }
@@ -515,11 +657,12 @@ const ChatScreen = ({route, navigation}) => {
     if (!attachment?.url) {
       return;
     }
+
     try {
       setAttachmentBusy(true);
       await sendAttachmentToPeer(peerId, attachment, '');
     } catch (error) {
-      Alert.alert('첨부를 보낼 수 없어요', error.message);
+      Alert.alert('Failed to send attachment', error.message);
     } finally {
       setAttachmentBusy(false);
     }
@@ -541,17 +684,60 @@ const ChatScreen = ({route, navigation}) => {
     await sendPreparedAttachment(picked);
   };
 
+  const onPickAudioAttachment = async () => {
+    const picked = await AttachmentService.pickAudioFile();
+    if (!picked) {
+      return;
+    }
+    await sendPreparedAttachment(picked);
+  };
+
+  const onToggleVoiceRecording = async () => {
+    if (voiceBusy) {
+      return;
+    }
+
+    try {
+      setVoiceBusy(true);
+      if (!voiceRecording) {
+        await VoiceMessageService.startRecording();
+        setVoiceRecording(true);
+        setVoiceStartedAt(Date.now());
+        setVoiceElapsedSec(0);
+        return;
+      }
+
+      const recordedAttachment = await VoiceMessageService.stopRecording();
+      setVoiceRecording(false);
+      setVoiceStartedAt(0);
+      setVoiceElapsedSec(0);
+
+      if (!recordedAttachment) {
+        return;
+      }
+
+      await sendPreparedAttachment(recordedAttachment);
+    } catch (error) {
+      setVoiceRecording(false);
+      setVoiceStartedAt(0);
+      setVoiceElapsedSec(0);
+      Alert.alert('Voice message failed', error.message);
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   const onCreateReconnectSignal = async () => {
     try {
       await refreshReconnectSignal(peerId);
     } catch (error) {
-      Alert.alert('재연결 코드 생성 실패', error.message);
+      Alert.alert('Reconnect code generation failed', error.message);
     }
   };
 
   const onSelectDisappearingTimer = (seconds) => {
     setPeerDisappearingTimer(peerId, seconds).catch((error) => {
-      Alert.alert('타이머를 설정할 수 없어요', error.message);
+      Alert.alert('Failed to update timer', error.message);
     });
   };
 
@@ -560,13 +746,31 @@ const ChatScreen = ({route, navigation}) => {
       text: option.label,
       onPress: () => onSelectDisappearingTimer(option.seconds)
     }));
-    buttons.push({text: '취소', style: 'cancel'});
+    buttons.push({text: 'Cancel', style: 'cancel'});
 
     Alert.alert(
-      '사라지는 메시지',
-      '새 메시지가 자동으로 삭제될 시간을 선택하세요.',
+      'Disappearing Messages',
+      'Choose when sent messages are auto-deleted.',
       buttons
     );
+  };
+
+  const onReactMessage = async (messageId, emoji) => {
+    try {
+      await sendReactionToMessage(peerId, messageId, emoji);
+    } catch (error) {
+      Alert.alert('Reaction failed', error.message);
+    }
+  };
+
+  const onOpenReactionPicker = (message) => {
+    const actions = reactionOptions.map((emoji) => ({
+      text: emoji,
+      onPress: () => onReactMessage(message.id, emoji)
+    }));
+
+    actions.push({text: 'Cancel', style: 'cancel'});
+    Alert.alert('Reaction', 'Choose an emoji reaction.', actions);
   };
 
   const onChangeInput = (value) => {
@@ -604,35 +808,73 @@ const ChatScreen = ({route, navigation}) => {
   const onOpenAttachmentMenu = () => {
     const options = [
       {
-        text: '이미지 선택',
+        text: 'Choose image',
         onPress: () => {
           setShowAttachComposer(false);
           onPickImageAttachment().catch((error) => {
-            Alert.alert('이미지를 불러올 수 없어요', error.message);
+            Alert.alert('Failed to load image', error.message);
           });
         }
       },
       {
-        text: '파일 선택',
+        text: 'Choose file',
         onPress: () => {
           setShowAttachComposer(false);
           onPickFileAttachment().catch((error) => {
-            Alert.alert('파일을 불러올 수 없어요', error.message);
+            Alert.alert('Failed to load file', error.message);
           });
         }
       },
       {
-        text: showAttachComposer ? '링크 첨부 닫기' : '링크 첨부',
+        text: 'Choose audio file',
+        onPress: () => {
+          setShowAttachComposer(false);
+          onPickAudioAttachment().catch((error) => {
+            Alert.alert('Failed to load audio', error.message);
+          });
+        }
+      },
+      {
+        text: showAttachComposer ? 'Close link compose' : 'Link compose',
         onPress: () => setShowAttachComposer((prev) => !prev)
       },
       {
-        text: '취소',
+        text: 'Cancel',
         style: 'cancel'
       }
     ];
 
-    Alert.alert('첨부 메뉴', '보낼 첨부 방식을 선택하세요.', options);
+    Alert.alert('Attachment Menu', 'Choose how to attach a file.', options);
   };
+
+  const onToggleSearchBar = () => {
+    setShowSearchBar((prev) => {
+      const next = !prev;
+      if (!next) {
+        setMessageSearchQuery('');
+      }
+      return next;
+    });
+  };
+
+  const onTogglePinPeer = () => {
+    if (!peerId) {
+      return;
+    }
+    togglePeerPinned(peerId, !Boolean(peer?.isPinned));
+  };
+
+  const hasInputText = Boolean(text.trim());
+  const primaryActionIcon = hasInputText
+    ? 'send'
+    : voiceRecording
+      ? 'stop'
+      : 'mic';
+  const primaryActionLabel = hasInputText
+    ? 'Send message'
+    : voiceRecording
+      ? 'Stop recording'
+      : 'Start voice recording';
 
   return (
     <KeyboardAvoidingView
@@ -646,7 +888,7 @@ const ChatScreen = ({route, navigation}) => {
           style={styles.iconBtn}
           onPress={() => navigation.goBack()}
           accessibilityRole="button"
-          accessibilityLabel="뒤로 가기">
+          accessibilityLabel="Back">
           <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
 
@@ -656,7 +898,7 @@ const ChatScreen = ({route, navigation}) => {
 
         <View style={styles.headerMain}>
           <Text numberOfLines={1} style={styles.peerName}>
-            {peer?.name || '알 수 없는 친구'}
+            {peer?.name || 'Unknown peer'}
           </Text>
           <Text style={styles.peerId}>ID {toShortPeerLabel(peerId || '')}</Text>
           <View style={styles.headerMetaRow}>
@@ -665,39 +907,102 @@ const ChatScreen = ({route, navigation}) => {
               <MaterialIcons name="timer" size={11} color={colors.textSecondary} />
               <Text style={styles.timerPillText}>{formatTimerLabel(disappearingTimerSec)}</Text>
             </View>
-            {isPeerTyping ? <Text style={styles.typingText}>입력 중...</Text> : null}
+            {isPeerTyping ? <Text style={styles.typingText}>Typing...</Text> : null}
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.timerMenuBtn}
-          onPress={onOpenDisappearingMenu}
-          accessibilityRole="button"
-          accessibilityLabel="사라지는 메시지 타이머 설정">
-          <MaterialIcons name="timer" size={17} color={colors.textSecondary} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={onTogglePinPeer}
+            accessibilityRole="button"
+            accessibilityLabel={peer?.isPinned ? 'Unpin conversation' : 'Pin conversation'}>
+            <MaterialIcons
+              name={peer?.isPinned ? 'push-pin' : 'push-pin'}
+              size={17}
+              color={peer?.isPinned ? colors.primary : colors.textSecondary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={onToggleSearchBar}
+            accessibilityRole="button"
+            accessibilityLabel="Search messages">
+            <MaterialIcons
+              name={showSearchBar ? 'close' : 'search'}
+              size={17}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={onOpenDisappearingMenu}
+            accessibilityRole="button"
+            accessibilityLabel="Disappearing timer settings">
+            <MaterialIcons name="timer" size={17} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {showSearchBar ? (
+        <>
+          <View style={styles.searchBar}>
+            <MaterialIcons name="search" size={16} color={colors.textSecondary} />
+            <TextInput
+              value={messageSearchQuery}
+              onChangeText={setMessageSearchQuery}
+              placeholder="Search in this conversation"
+              placeholderTextColor={colors.textMuted}
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search messages"
+            />
+          </View>
+          {messageSearchQuery.trim() ? (
+            <Text style={styles.searchMeta}>
+              {visibleMessages.length} / {messages.length} matches
+            </Text>
+          ) : null}
+        </>
+      ) : null}
 
       {showEncryptedBanner ? (
         <Animated.View style={[styles.encryptedBanner, {opacity: bannerOpacity}]}>
           <View style={styles.encryptedRow}>
             <MaterialIcons name="shield" size={13} color={colors.success} />
-            <Text style={styles.encryptedText}>이 대화는 Session 방식의 E2E 암호화로 보호됩니다</Text>
+            <Text style={styles.encryptedText}>
+              Messages are protected with end-to-end encryption.
+            </Text>
           </View>
         </Animated.View>
       ) : null}
 
       <FlatList
-        data={messages}
+        data={visibleMessages}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.messageList}
-        renderItem={({item}) => <MessageBubble message={item} />}
+        ListEmptyComponent={
+          messageSearchQuery.trim() ? (
+            <View style={styles.emptySearchState}>
+              <Text style={styles.emptySearchText}>No messages match your search.</Text>
+            </View>
+          ) : null
+        }
+        renderItem={({item}) => (
+          <MessageBubble
+            message={item}
+            currentUserId={profile?.id}
+            onReact={onReactMessage}
+            onOpenReactionPicker={onOpenReactionPicker}
+          />
+        )}
       />
 
       {showAttachComposer ? (
         <View style={styles.attachComposer}>
-          <Text style={styles.attachTitle}>첨부 전송</Text>
+          <Text style={styles.attachTitle}>Send attachment</Text>
           <View style={styles.attachTypeRow}>
             <TouchableOpacity
               style={[
@@ -706,7 +1011,7 @@ const ChatScreen = ({route, navigation}) => {
               ]}
               onPress={() => setAttachmentKind('image')}
               accessibilityRole="button"
-              accessibilityLabel="이미지 첨부 선택">
+              accessibilityLabel="Select image type">
               <MaterialIcons
                 name="image"
                 size={14}
@@ -717,7 +1022,7 @@ const ChatScreen = ({route, navigation}) => {
                   styles.attachTypeText,
                   attachmentKind === 'image' && styles.attachTypeTextActive
                 ]}>
-                이미지 URL
+                Image URL
               </Text>
             </TouchableOpacity>
             <View style={{width: spacing.xs}} />
@@ -728,7 +1033,7 @@ const ChatScreen = ({route, navigation}) => {
               ]}
               onPress={() => setAttachmentKind('file')}
               accessibilityRole="button"
-              accessibilityLabel="파일 첨부 선택">
+              accessibilityLabel="Select file type">
               <MaterialIcons
                 name="attach-file"
                 size={14}
@@ -739,7 +1044,7 @@ const ChatScreen = ({route, navigation}) => {
                   styles.attachTypeText,
                   attachmentKind === 'file' && styles.attachTypeTextActive
                 ]}>
-                파일 링크
+                File URL
               </Text>
             </TouchableOpacity>
           </View>
@@ -747,20 +1052,20 @@ const ChatScreen = ({route, navigation}) => {
           <TextInput
             value={attachmentUrl}
             onChangeText={setAttachmentUrl}
-            placeholder={attachmentKind === 'image' ? 'https://... 이미지 URL' : 'https://... 파일 URL'}
+            placeholder={attachmentKind === 'image' ? 'https://... image URL' : 'https://... file URL'}
             placeholderTextColor={colors.textMuted}
             style={styles.attachInput}
             autoCapitalize="none"
             autoCorrect={false}
-            accessibilityLabel="첨부 URL 입력"
+            accessibilityLabel="Attachment URL"
           />
           <TextInput
             value={attachmentName}
             onChangeText={setAttachmentName}
-            placeholder="표시 이름 (선택)"
+            placeholder="Display name (optional)"
             placeholderTextColor={colors.textMuted}
             style={styles.attachInput}
-            accessibilityLabel="첨부 이름 입력"
+            accessibilityLabel="Attachment name"
           />
 
           <View style={styles.attachActionRow}>
@@ -769,20 +1074,30 @@ const ChatScreen = ({route, navigation}) => {
               disabled={attachmentBusy}
               onPress={resetAttachmentComposer}
               accessibilityRole="button"
-              accessibilityLabel="첨부 취소">
-              <Text style={styles.attachCancelText}>취소</Text>
+              accessibilityLabel="Cancel attachment">
+              <Text style={styles.attachCancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.attachSendBtn, attachmentBusy && styles.sendBtnDisabled]}
               onPress={onSendAttachment}
               disabled={attachmentBusy}
               accessibilityRole="button"
-              accessibilityLabel="첨부 전송">
+              accessibilityLabel="Send attachment">
               <Text style={styles.attachSendText}>
-                {attachmentBusy ? '전송 중...' : '첨부 전송'}
+                {attachmentBusy ? 'Sending...' : 'Send attachment'}
               </Text>
             </TouchableOpacity>
           </View>
+        </View>
+      ) : null}
+
+      {voiceRecording ? (
+        <View style={styles.voiceBanner}>
+          <View style={styles.voiceDot} />
+          <Text style={styles.voiceBannerText}>
+            Recording voice message {formatVoiceDuration(voiceElapsedSec)}
+          </Text>
+          <Text style={styles.voiceBannerHint}>Tap mic button again to send</Text>
         </View>
       ) : null}
 
@@ -792,8 +1107,10 @@ const ChatScreen = ({route, navigation}) => {
             style={styles.reconnectHeader}
             onPress={() => setReconnectExpanded((value) => !value)}
             accessibilityRole="button"
-            accessibilityLabel={reconnectExpanded ? '재연결 카드 접기' : '재연결 카드 펼치기'}>
-            <Text style={styles.reconnectHeaderText}>연결이 끊겼습니다. 재연결 코드를 확인해 주세요.</Text>
+            accessibilityLabel={reconnectExpanded ? 'Hide reconnect card' : 'Show reconnect card'}>
+            <Text style={styles.reconnectHeaderText}>
+              Connection was lost. Open a new reconnect QR code.
+            </Text>
             <MaterialIcons
               name={reconnectExpanded ? 'expand-less' : 'expand-more'}
               size={24}
@@ -804,14 +1121,14 @@ const ChatScreen = ({route, navigation}) => {
           {reconnectExpanded ? (
             <View style={styles.reconnectBody}>
               <Text style={styles.reconnectText}>
-                재연결 코드를 생성한 뒤 상대가 스캔하면 P2P 채널을 다시 열 수 있습니다.
+                Generate and scan this code from the other device to restore the P2P session.
               </Text>
               <TouchableOpacity
                 style={styles.reconnectButton}
                 onPress={onCreateReconnectSignal}
                 accessibilityRole="button"
-                accessibilityLabel="재연결 코드 생성">
-                <Text style={styles.reconnectButtonText}>재연결 코드 생성</Text>
+                accessibilityLabel="Generate reconnect code">
+                <Text style={styles.reconnectButtonText}>Generate reconnect code</Text>
               </TouchableOpacity>
               {reconnectSignal ? (
                 <View style={styles.reconnectQrBox}>
@@ -825,11 +1142,14 @@ const ChatScreen = ({route, navigation}) => {
 
       <View style={styles.inputBar}>
         <TouchableOpacity
-          style={[styles.attachBtn, attachmentBusy && styles.sendBtnDisabled]}
+          style={[
+            styles.attachBtn,
+            (attachmentBusy || voiceBusy || voiceRecording) && styles.sendBtnDisabled
+          ]}
           onPress={onOpenAttachmentMenu}
-          disabled={attachmentBusy}
+          disabled={attachmentBusy || voiceBusy || voiceRecording}
           accessibilityRole="button"
-          accessibilityLabel="추가 메뉴">
+          accessibilityLabel="Open attachment menu">
           <MaterialIcons
             name={showAttachComposer ? 'close' : 'add'}
             size={18}
@@ -840,21 +1160,24 @@ const ChatScreen = ({route, navigation}) => {
           <TextInput
             value={text}
             onChangeText={onChangeInput}
-            placeholder="메시지를 입력하세요"
+            placeholder="Type a message"
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             multiline
             maxLength={2000}
-            accessibilityLabel="메시지 입력"
+            accessibilityLabel="Message input"
           />
         </View>
         <TouchableOpacity
-          style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
-          onPress={onSend}
-          disabled={!text.trim()}
+          style={[
+            styles.sendBtn,
+            (!hasInputText && !voiceRecording && voiceBusy) && styles.sendBtnDisabled
+          ]}
+          onPress={hasInputText ? onSend : onToggleVoiceRecording}
+          disabled={!hasInputText && !voiceRecording && voiceBusy}
           accessibilityRole="button"
-          accessibilityLabel="메시지 전송">
-          <MaterialIcons name="send" size={17} color={colors.onPrimary} />
+          accessibilityLabel={primaryActionLabel}>
+          <MaterialIcons name={primaryActionIcon} size={17} color={colors.onPrimary} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

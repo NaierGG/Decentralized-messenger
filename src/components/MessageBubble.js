@@ -4,6 +4,13 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {MESSAGE_STATUS} from '../utils/constants';
 import {useTheme} from '../context/ThemeContext';
 
+const formatDuration = (ms) => {
+  const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
+
 const StatusIcon = ({status, color}) => {
   if (status === MESSAGE_STATUS.READ) {
     return <MaterialIcons name="done-all" size={12} color={color} />;
@@ -20,10 +27,24 @@ const StatusIcon = ({status, color}) => {
   return null;
 };
 
-const MessageBubble = ({message}) => {
+const MessageBubble = ({
+  message,
+  currentUserId,
+  onReact,
+  onOpenReactionPicker
+}) => {
   const {colors, typography, spacing} = useTheme();
   const isOutgoing = message.direction === 'outgoing';
   const isAttachment = message.type === 'attachment' && message.attachment;
+  const isAudioAttachment = isAttachment && message.attachment.type === 'audio';
+
+  const reactionEntries = useMemo(
+    () =>
+      Object.entries(message?.reactions || {})
+        .filter(([, actors]) => Array.isArray(actors) && actors.length > 0)
+        .sort((a, b) => b[1].length - a[1].length),
+    [message?.reactions]
+  );
 
   const styles = useMemo(
     () =>
@@ -106,6 +127,24 @@ const MessageBubble = ({message}) => {
           flexDirection: 'row',
           alignItems: 'center'
         },
+        attachmentAudioCard: {
+          minWidth: 210,
+          borderRadius: 12,
+          paddingVertical: spacing.xs,
+          paddingHorizontal: spacing.sm,
+          borderWidth: 1,
+          borderColor: isOutgoing ? colors.onPrimary : colors.border,
+          backgroundColor: isOutgoing ? 'transparent' : colors.surface01
+        },
+        attachmentAudioTop: {
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        attachmentAudioDuration: {
+          marginLeft: spacing.xs,
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: isOutgoing ? colors.onPrimary : colors.textSecondary
+        },
         attachmentFileTextWrap: {
           marginLeft: spacing.xs,
           flex: 1
@@ -123,15 +162,57 @@ const MessageBubble = ({message}) => {
           marginTop: spacing.xxs + 1,
           ...typography.textStyle(typography.size.xs, typography.weight.regular),
           color: isOutgoing ? colors.onPrimary : colors.textSecondary
+        },
+        reactionRow: {
+          marginTop: spacing.xxs + 2,
+          flexDirection: 'row',
+          flexWrap: 'wrap'
+        },
+        reactionRowOutgoing: {
+          justifyContent: 'flex-end'
+        },
+        reactionRowIncoming: {
+          justifyContent: 'flex-start'
+        },
+        reactionChip: {
+          minHeight: 24,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          paddingVertical: 2,
+          paddingHorizontal: spacing.xs - 1,
+          marginTop: spacing.xxs,
+          marginRight: spacing.xxs,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        reactionChipSelected: {
+          borderColor: colors.primary,
+          backgroundColor: colors.surface02
+        },
+        reactionEmoji: {
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          marginRight: 4
+        },
+        reactionCount: {
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold),
+          color: colors.textSecondary
+        },
+        reactionCountSelected: {
+          color: colors.textPrimary
         }
       }),
     [colors, isOutgoing, spacing, typography]
   );
 
   const onOpenAttachment = () => {
-    const url = message?.attachment?.url;
+    let url = String(message?.attachment?.url || '').trim();
     if (!url) {
       return;
+    }
+    if (!/^(https?:|file:|content:|data:)/i.test(url)) {
+      url = `file://${url}`;
     }
     Linking.openURL(url).catch(() => null);
   };
@@ -139,8 +220,12 @@ const MessageBubble = ({message}) => {
   return (
     <View style={[styles.row, isOutgoing ? styles.rowOutgoing : styles.rowIncoming]}>
       <TouchableOpacity
-        activeOpacity={isAttachment ? 0.85 : 1}
+        activeOpacity={isAttachment ? 0.85 : 0.95}
         onPress={isAttachment ? onOpenAttachment : undefined}
+        onLongPress={
+          onOpenReactionPicker ? () => onOpenReactionPicker(message) : undefined
+        }
+        delayLongPress={170}
         style={[
           styles.bubble,
           isOutgoing ? styles.bubbleOutgoing : styles.bubbleIncoming
@@ -153,6 +238,22 @@ const MessageBubble = ({message}) => {
                 style={styles.attachmentImage}
                 resizeMode="cover"
               />
+            ) : isAudioAttachment ? (
+              <View style={styles.attachmentAudioCard}>
+                <View style={styles.attachmentAudioTop}>
+                  <MaterialIcons
+                    name="play-circle-filled"
+                    size={20}
+                    color={isOutgoing ? colors.onPrimary : colors.primary}
+                  />
+                  <Text numberOfLines={1} style={styles.attachmentFileName}>
+                    {message.attachment.name || 'Voice message'}
+                  </Text>
+                </View>
+                <Text style={styles.attachmentAudioDuration}>
+                  {formatDuration(message.attachment.durationMs || 0)}
+                </Text>
+              </View>
             ) : (
               <View style={styles.attachmentFileRow}>
                 <MaterialIcons
@@ -162,7 +263,7 @@ const MessageBubble = ({message}) => {
                 />
                 <View style={styles.attachmentFileTextWrap}>
                   <Text numberOfLines={1} style={styles.attachmentFileName}>
-                    {message.attachment.name || '첨부 파일'}
+                    {message.attachment.name || 'Attachment file'}
                   </Text>
                   <Text numberOfLines={1} style={styles.attachmentFileUrl}>
                     {message.attachment.url}
@@ -180,6 +281,36 @@ const MessageBubble = ({message}) => {
           </Text>
         )}
       </TouchableOpacity>
+
+      {reactionEntries.length ? (
+        <View
+          style={[
+            styles.reactionRow,
+            isOutgoing ? styles.reactionRowOutgoing : styles.reactionRowIncoming
+          ]}>
+          {reactionEntries.map(([emoji, actors]) => {
+            const selected = Boolean(currentUserId && actors.includes(currentUserId));
+            return (
+              <TouchableOpacity
+                key={emoji}
+                style={[styles.reactionChip, selected && styles.reactionChipSelected]}
+                onPress={onReact ? () => onReact(message.id, emoji) : undefined}
+                disabled={!onReact}
+                accessibilityRole="button"
+                accessibilityLabel={`리액션 ${emoji}`}>
+                <Text style={styles.reactionEmoji}>{emoji}</Text>
+                <Text
+                  style={[
+                    styles.reactionCount,
+                    selected && styles.reactionCountSelected
+                  ]}>
+                  {actors.length}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
 
       <View style={[styles.metaRow, isOutgoing ? styles.metaRowOutgoing : styles.metaRowIncoming]}>
         <Text style={styles.metaText}>

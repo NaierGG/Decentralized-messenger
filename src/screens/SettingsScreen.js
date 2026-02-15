@@ -1,8 +1,11 @@
-﻿import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {
+  Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -12,8 +15,21 @@ import {useTheme} from '../context/ThemeContext';
 import {toShortPeerLabel} from '../utils/crypto';
 
 const SettingsScreen = ({navigation}) => {
-  const {profile} = useApp();
+  const {
+    profile,
+    updatePrivacySettings,
+    setAppPin,
+    disableAppPin,
+    lockApp
+  } = useApp();
   const {colors, typography, spacing, mode, toggleMode, useSystemMode} = useTheme();
+  const [pinValue, setPinValue] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
+
+  const readReceiptsEnabled = Boolean(profile?.privacy?.readReceiptsEnabled);
+  const typingIndicatorsEnabled = Boolean(profile?.privacy?.typingIndicatorsEnabled);
+  const pinEnabled = Boolean(profile?.security?.pinEnabled);
 
   const styles = useMemo(
     () =>
@@ -150,10 +166,127 @@ const SettingsScreen = ({navigation}) => {
           marginTop: spacing.xxs,
           ...typography.textStyle(typography.size.xs, typography.weight.regular),
           color: colors.textMuted
+        },
+        toggleRow: {
+          minHeight: 54,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: spacing.xs
+        },
+        toggleMain: {
+          flex: 1,
+          paddingRight: spacing.sm
+        },
+        toggleTitle: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary
+        },
+        toggleDescription: {
+          marginTop: spacing.xxs,
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        statusPill: {
+          alignSelf: 'flex-start',
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          paddingVertical: 4,
+          paddingHorizontal: spacing.sm,
+          marginBottom: spacing.xs
+        },
+        statusText: {
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold),
+          color: pinEnabled ? colors.online : colors.textSecondary
+        },
+        pinInputWrap: {
+          minHeight: 44,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          justifyContent: 'center',
+          paddingHorizontal: spacing.sm,
+          marginBottom: spacing.xs
+        },
+        pinInput: {
+          color: colors.textPrimary,
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          paddingVertical: 0
+        },
+        pinHint: {
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: colors.textMuted,
+          marginBottom: spacing.xs
+        },
+        dangerBtn: {
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.error,
+          backgroundColor: colors.surface02,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: spacing.xs
+        },
+        dangerText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.error,
+          marginLeft: spacing.xs
         }
       }),
-    [colors, typography, spacing]
+    [colors, typography, spacing, pinEnabled]
   );
+
+  const onSavePin = async () => {
+    const pin = String(pinValue || '').replace(/\D/g, '');
+    const confirm = String(pinConfirm || '').replace(/\D/g, '');
+
+    if (pin.length < 4 || pin.length > 8) {
+      Alert.alert('Invalid PIN', 'Use 4 to 8 digits.');
+      return;
+    }
+
+    if (pin !== confirm) {
+      Alert.alert('PIN mismatch', 'PIN and confirmation must match.');
+      return;
+    }
+
+    try {
+      setPinBusy(true);
+      await setAppPin(pin);
+      setPinValue('');
+      setPinConfirm('');
+      Alert.alert('PIN updated', 'App lock PIN has been saved.');
+    } catch (error) {
+      Alert.alert('Failed to save PIN', error.message);
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
+  const onDisablePin = async () => {
+    try {
+      setPinBusy(true);
+      await disableAppPin(pinValue);
+      setPinValue('');
+      setPinConfirm('');
+      Alert.alert('PIN disabled', 'App lock has been turned off.');
+    } catch (error) {
+      Alert.alert('Failed to disable PIN', error.message);
+    } finally {
+      setPinBusy(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -165,29 +298,34 @@ const SettingsScreen = ({navigation}) => {
           style={styles.iconBtn}
           onPress={() => navigation.goBack()}
           accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
+          accessibilityLabel="Back"
           hitSlop={{top: 6, bottom: 6, left: 6, right: 6}}>
           <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
 
         <View style={styles.titleWrap}>
-          <Text style={styles.title}>Session 설정</Text>
+          <Text style={styles.title}>Session Settings</Text>
           <Text style={styles.subtitle}>Privacy-first local profile</Text>
         </View>
 
         <View style={{width: spacing.component.iconButtonMin}} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}>
         <View style={styles.securityBanner}>
           <MaterialIcons name="verified-user" size={16} color={colors.success} />
-          <Text style={styles.securityBannerText}>키와 프로필은 기기에만 저장되며 서버로 업로드되지 않습니다</Text>
+          <Text style={styles.securityBannerText}>
+            Keys and profile data stay on this device and are never uploaded.
+          </Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>내 Session 프로필</Text>
+          <Text style={styles.sectionTitle}>My Session Profile</Text>
           <View style={styles.row}>
-            <Text style={styles.label}>이름</Text>
+            <Text style={styles.label}>Name</Text>
             <Text style={styles.value}>{profile?.name || '-'}</Text>
           </View>
           <View style={styles.row}>
@@ -195,25 +333,136 @@ const SettingsScreen = ({navigation}) => {
             <Text style={styles.value}>{toShortPeerLabel(profile?.id || '')}</Text>
           </View>
           <View>
-            <Text style={styles.label}>지문</Text>
-            <Text style={styles.value}>{toShortPeerLabel(profile?.identityFingerprint || '')}</Text>
+            <Text style={styles.label}>Fingerprint</Text>
+            <Text style={styles.value}>
+              {toShortPeerLabel(profile?.identityFingerprint || '')}
+            </Text>
           </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>화면 테마</Text>
+          <Text style={styles.sectionTitle}>Privacy</Text>
+
+          <View style={styles.toggleRow}>
+            <View style={styles.toggleMain}>
+              <Text style={styles.toggleTitle}>Send read receipts</Text>
+              <Text style={styles.toggleDescription}>
+                Let the peer know when messages are read.
+              </Text>
+            </View>
+            <Switch
+              value={readReceiptsEnabled}
+              onValueChange={(value) =>
+                updatePrivacySettings({readReceiptsEnabled: Boolean(value)})
+              }
+              thumbColor={colors.onPrimary}
+              trackColor={{false: colors.border, true: colors.primary}}
+              accessibilityLabel="Read receipts"
+            />
+          </View>
+
+          <View style={[styles.toggleRow, {marginBottom: 0}]}>
+            <View style={styles.toggleMain}>
+              <Text style={styles.toggleTitle}>Send typing indicators</Text>
+              <Text style={styles.toggleDescription}>
+                Let the peer know when you are typing.
+              </Text>
+            </View>
+            <Switch
+              value={typingIndicatorsEnabled}
+              onValueChange={(value) =>
+                updatePrivacySettings({typingIndicatorsEnabled: Boolean(value)})
+              }
+              thumbColor={colors.onPrimary}
+              trackColor={{false: colors.border, true: colors.primary}}
+              accessibilityLabel="Typing indicators"
+            />
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>App Lock PIN</Text>
+          <View style={styles.statusPill}>
+            <Text style={styles.statusText}>{pinEnabled ? 'PIN enabled' : 'PIN disabled'}</Text>
+          </View>
+
+          <View style={styles.pinInputWrap}>
+            <TextInput
+              value={pinValue}
+              onChangeText={(value) => setPinValue(String(value || '').replace(/\D/g, ''))}
+              placeholder={pinEnabled ? 'Current or new PIN' : 'New PIN'}
+              placeholderTextColor={colors.textMuted}
+              style={styles.pinInput}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              accessibilityLabel="PIN"
+            />
+          </View>
+          <View style={styles.pinInputWrap}>
+            <TextInput
+              value={pinConfirm}
+              onChangeText={(value) => setPinConfirm(String(value || '').replace(/\D/g, ''))}
+              placeholder="Confirm PIN"
+              placeholderTextColor={colors.textMuted}
+              style={styles.pinInput}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              accessibilityLabel="Confirm PIN"
+            />
+          </View>
+          <Text style={styles.pinHint}>Use 4 to 8 digits. The app locks on background.</Text>
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={onSavePin}
+            disabled={pinBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Save PIN">
+            <MaterialIcons name="lock" size={18} color={colors.textPrimary} />
+            <Text style={styles.actionText}>{pinEnabled ? 'Change PIN' : 'Enable PIN'}</Text>
+          </TouchableOpacity>
+
+          {pinEnabled ? (
+            <>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={lockApp}
+                disabled={pinBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Lock now">
+                <MaterialIcons name="lock-outline" size={18} color={colors.textPrimary} />
+                <Text style={styles.actionText}>Lock now</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.dangerBtn}
+                onPress={onDisablePin}
+                disabled={pinBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Disable PIN">
+                <MaterialIcons name="lock-open" size={18} color={colors.error} />
+                <Text style={styles.dangerText}>Disable PIN</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Theme</Text>
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={toggleMode}
             accessibilityRole="button"
-            accessibilityLabel="다크 모드 전환">
+            accessibilityLabel="Toggle dark mode">
             <MaterialIcons
               name={mode === 'dark' ? 'dark-mode' : 'light-mode'}
               size={18}
               color={colors.textPrimary}
             />
             <Text style={styles.actionText}>
-              {mode === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
+              {mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             </Text>
           </TouchableOpacity>
 
@@ -221,12 +470,12 @@ const SettingsScreen = ({navigation}) => {
             style={styles.actionBtn}
             onPress={useSystemMode}
             accessibilityRole="button"
-            accessibilityLabel="시스템 테마 사용">
+            accessibilityLabel="Use system theme">
             <MaterialIcons name="settings-suggest" size={18} color={colors.textPrimary} />
-            <Text style={styles.actionText}>시스템 설정 사용</Text>
+            <Text style={styles.actionText}>Use system theme</Text>
           </TouchableOpacity>
 
-          <Text style={styles.themeHint}>현재 모드: {mode === 'dark' ? 'Dark' : 'Light'}</Text>
+          <Text style={styles.themeHint}>Current mode: {mode === 'dark' ? 'Dark' : 'Light'}</Text>
         </View>
       </ScrollView>
     </View>

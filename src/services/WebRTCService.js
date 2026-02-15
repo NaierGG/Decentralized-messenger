@@ -24,11 +24,15 @@ const toConnectionState = (state) => {
   }
 };
 
+const MAX_CHANNEL_MESSAGE_SIZE = 12000;
+const CHUNK_STALE_MS = 60 * 1000;
+
 class WebRTCService {
   constructor() {
     this.peerConnections = new Map();
     this.dataChannels = new Map();
     this.peerSessions = new Map();
+    this.incomingChunkBuffers = new Map();
     this.callbacks = {};
     this.iceConfig = {iceServers: ICE_SERVERS};
   }
@@ -223,7 +227,8 @@ class WebRTCService {
       });
     }
 
-    channel.send(JSON.stringify({type: 'secure', envelope}));
+    const serialized = JSON.stringify({type: 'secure', envelope});
+    this.sendChannelPayload(peerId, serialized);
   }
 
   getConnectionState(peerId) {
@@ -247,6 +252,11 @@ class WebRTCService {
 
     this.dataChannels.delete(peerId);
     this.peerConnections.delete(peerId);
+    Array.from(this.incomingChunkBuffers.keys()).forEach((key) => {
+      if (key.startsWith(`${peerId}::`)) {
+        this.incomingChunkBuffers.delete(key);
+      }
+    });
   }
 
   closeAll() {
@@ -254,6 +264,7 @@ class WebRTCService {
       this.closePeer(peerId);
     });
     this.peerSessions.clear();
+    this.incomingChunkBuffers.clear();
   }
 
   ensurePeerConnection(peerId, options = {}) {
@@ -327,6 +338,11 @@ class WebRTCService {
   }
 
   handleIncomingPayload(peerId, message) {
+    if (message.type === 'secure_chunk') {
+      this.handleIncomingChunk(peerId, message);
+      return;
+    }
+
     if (message.type !== 'secure' || !message.envelope) {
       if (this.callbacks.onRawMessage) {
         this.callbacks.onRawMessage(peerId, message);
@@ -370,6 +386,101 @@ class WebRTCService {
       if (this.callbacks.onSecureMessage) {
         this.callbacks.onSecureMessage(peerId, unpacked.payload);
       }
+    } catch (error) {
+      if (this.callbacks.onError) {
+        this.callbacks.onError(error);
+      }
+    }
+  }
+
+  sendChannelPayload(peerId, serializedPayload) {
+    const channel = this.dataChannels.get(peerId);
+    if (!channel || channel.readyState !== 'open') {
+      throw new Error('DataChannel is not open');
+    }
+
+    if (serializedPayload.length <= MAX_CHANNEL_MESSAGE_SIZE) {
+      channel.send(serializedPayload);
+      return;
+    }
+
+    const transferId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    const totalChunks = Math.ceil(
+      serializedPayload.length / MAX_CHANNEL_MESSAGE_SIZE
+    );
+
+    for (let index = 0; index < totalChunks; index += 1) {
+      const start = index * MAX_CHANNEL_MESSAGE_SIZE;
+      const end = start + MAX_CHANNEL_MESSAGE_SIZE;
+      const chunkPayload = serializedPayload.slice(start, end);
+      channel.send(
+        JSON.stringify({
+          type: 'secure_chunk',
+          transferId,
+          index,
+          total: totalChunks,
+          payload: chunkPayload
+        })
+      );
+    }
+  }
+
+  handleIncomingChunk(peerId, chunkMessage) {
+    const transferId = String(chunkMessage.transferId || '').trim();
+    const index = Number(chunkMessage.index);
+    const total = Number(chunkMessage.total);
+    const payload = String(chunkMessage.payload || '');
+
+    if (
+      !transferId ||
+      !Number.isInteger(index) ||
+      !Number.isInteger(total) ||
+      total <= 0 ||
+      index < 0 ||
+      index >= total
+    ) {
+      return;
+    }
+
+    const key = `${peerId}::${transferId}`;
+    const nowTs = Date.now();
+
+    Array.from(this.incomingChunkBuffers.entries()).forEach(([entryKey, entry]) => {
+      if (!entry || nowTs - entry.createdAt > CHUNK_STALE_MS) {
+        this.incomingChunkBuffers.delete(entryKey);
+      }
+    });
+
+    const existing =
+      this.incomingChunkBuffers.get(key) ||
+      {
+        total,
+        chunks: new Array(total),
+        receivedCount: 0,
+        createdAt: nowTs
+      };
+
+    if (existing.total !== total) {
+      this.incomingChunkBuffers.delete(key);
+      return;
+    }
+
+    if (typeof existing.chunks[index] !== 'string') {
+      existing.chunks[index] = payload;
+      existing.receivedCount += 1;
+    }
+    this.incomingChunkBuffers.set(key, existing);
+
+    if (existing.receivedCount !== total) {
+      return;
+    }
+
+    this.incomingChunkBuffers.delete(key);
+    const joinedPayload = existing.chunks.join('');
+
+    try {
+      const parsed = JSON.parse(joinedPayload);
+      this.handleIncomingPayload(peerId, parsed);
     } catch (error) {
       if (this.callbacks.onError) {
         this.callbacks.onError(error);

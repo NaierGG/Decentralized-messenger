@@ -5,12 +5,13 @@ const {createHash} = QuickCrypto;
 
 export const generateId = () => uuidv4();
 
+export const hashValue = (value) =>
+  createHash('sha256').update(String(value)).digest('hex');
+
 export const createFingerprint = (value, length = 12) =>
-  createHash('sha256')
-    .update(String(value))
-    .digest('hex')
-    .slice(0, length)
-    .toUpperCase();
+  hashValue(value).slice(0, length).toUpperCase();
+
+export const hashPin = (pin) => hashValue(`pin::${String(pin)}`);
 
 export const toShortPeerLabel = (peerId) =>
   peerId.length <= 10 ? peerId : `${peerId.slice(0, 6)}...${peerId.slice(-4)}`;

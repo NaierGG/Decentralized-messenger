@@ -1,5 +1,6 @@
 import {launchImageLibrary} from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker';
+import RNFS from 'react-native-fs';
 
 const normalizeNameFromUri = (uri, fallback = 'attachment') => {
   const value = String(uri || '').split('/').pop() || '';
@@ -59,6 +60,38 @@ class AttachmentService {
         return null;
       }
       throw new Error(error?.message || '파일을 불러올 수 없어요.');
+    }
+  }
+
+  async pickAudioFile() {
+    try {
+      const file = await DocumentPicker.pickSingle({
+        type: [DocumentPicker.types.audio],
+        copyTo: 'cachesDirectory'
+      });
+
+      const uri = file.fileCopyUri || file.uri;
+      if (!uri) {
+        throw new Error('Selected audio file has no valid URI');
+      }
+
+      const normalizedPath = String(uri).replace(/^file:\/\//, '');
+      const dataB64 = await RNFS.readFile(normalizedPath, 'base64');
+
+      return {
+        type: 'audio',
+        url: String(uri),
+        name: file.name || normalizeNameFromUri(uri, 'voice.m4a'),
+        size: file.size || null,
+        mimeType: file.type || 'audio/*',
+        durationMs: null,
+        dataB64
+      };
+    } catch (error) {
+      if (DocumentPicker.isCancel(error)) {
+        return null;
+      }
+      throw new Error(error?.message || 'Failed to load audio file');
     }
   }
 }

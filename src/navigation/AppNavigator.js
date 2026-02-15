@@ -7,6 +7,7 @@ import ContactsScreen from '../screens/ContactsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import AddPeerScreen from '../screens/AddPeerScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import LockScreen from '../screens/LockScreen';
 import {useApp} from '../context/AppContext';
 import {useTheme} from '../context/ThemeContext';
 
@@ -23,27 +24,28 @@ const LoadingScreen = () => {
           typography.textStyle(typography.size.sm, typography.weight.semibold),
           {color: colors.textSecondary}
         ]}>
-        Session 네트워크를 준비하고 있어요...
+        Preparing Session secure network...
       </Text>
     </View>
   );
 };
 
 const AppNavigator = () => {
-  const {ready, profile} = useApp();
+  const {ready, profile, appUnlocked} = useApp();
 
   if (!ready) {
     return <LoadingScreen />;
   }
 
+  const pinLocked = Boolean(profile?.security?.pinEnabled) && !appUnlocked;
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{headerShown: false}}>
         {!profile ? (
-          <Stack.Screen
-            name="Onboarding"
-            component={OnboardingScreen}
-          />
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        ) : pinLocked ? (
+          <Stack.Screen name="Lock" component={LockScreen} />
         ) : (
           <>
             <Stack.Screen name="Contacts" component={ContactsScreen} />
