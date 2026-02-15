@@ -5,7 +5,7 @@ import {
 import EncryptionService from './EncryptionService';
 import {
   CONNECTION_STATES,
-  DEFAULT_ICE_SERVERS,
+  ICE_SERVERS,
   SIGNAL_TYPES
 } from '../utils/constants';
 
@@ -30,7 +30,7 @@ class WebRTCService {
     this.dataChannels = new Map();
     this.peerSessions = new Map();
     this.callbacks = {};
-    this.iceConfig = {iceServers: DEFAULT_ICE_SERVERS};
+    this.iceConfig = {iceServers: ICE_SERVERS};
   }
 
   setCallbacks(callbacks) {
@@ -42,26 +42,25 @@ class WebRTCService {
 
   async createOffer({peerId, localPeerId, localIdentity, restartIce = false}) {
     const pc = this.ensurePeerConnection(peerId, {initiator: true});
-    const session = this.peerSessions.get(peerId) || {
-      secret: EncryptionService.createSessionSecret(),
-      remoteIdentity: null
-    };
-    this.peerSessions.set(peerId, session);
+    const offerExtras = EncryptionService.initSessionAsInitiator(peerId, {
+      peerId: localPeerId,
+      identity: localIdentity
+    });
 
     const offer = await pc.createOffer({iceRestart: restartIce});
     await pc.setLocalDescription(offer);
     const localDescription = await this.waitForIceGatheringComplete(pc);
 
     return {
-      protocolVersion: 1,
+      protocolVersion: 2,
       type: SIGNAL_TYPES.OFFER,
       peerId: localPeerId,
       targetPeerId: peerId,
       identity: localIdentity,
-      sessionSecret: session.secret,
       sdp: localDescription.sdp,
       sentAt: Date.now(),
-      restartIce
+      restartIce,
+      ...offerExtras
     };
   }
 
@@ -72,10 +71,47 @@ class WebRTCService {
       forceNew: true
     });
 
-    this.peerSessions.set(peerId, {
-      secret: offerSignal.sessionSecret,
-      remoteIdentity: offerSignal.identity || null
-    });
+    const protocolVersion = Number(offerSignal.protocolVersion || 1);
+    let sessionPatch = {
+      protocolVersion,
+      remoteIdentity: offerSignal.identity || null,
+      sendSeq: 0,
+      lastReceivedSeq: 0
+    };
+
+    let answerExtras = {};
+    if (protocolVersion >= 2) {
+      if (!offerSignal.keyAgreement?.publicKeyB64 || !offerSignal.nonceB64) {
+        throw new Error('Invalid protocol v2 offer payload');
+      }
+      const result = EncryptionService.initSessionAsResponder(peerId, offerSignal, {
+        peerId: localPeerId,
+        identity: localIdentity
+      });
+      sessionPatch = {
+        ...sessionPatch,
+        protocolVersion: 2,
+        sessionKey: result.sessionKey,
+        legacySecret: null
+      };
+      answerExtras = result.answerExtraFields;
+    } else {
+      // TODO: Remove v1 compatibility path once all clients migrate to protocol v2.
+      console.warn(
+        '[security] Accepting legacy protocol v1 offer. sessionSecret-based mode is deprecated.'
+      );
+      const legacySecret =
+        offerSignal.sessionSecret || EncryptionService.createSessionSecret();
+      sessionPatch = {
+        ...sessionPatch,
+        protocolVersion: 1,
+        sessionKey: EncryptionService.deriveLegacySessionKey(legacySecret),
+        legacySecret
+      };
+      answerExtras = {sessionSecret: legacySecret};
+    }
+
+    this.peerSessions.set(peerId, sessionPatch);
 
     await pc.setRemoteDescription(
       new RTCSessionDescription({type: 'offer', sdp: offerSignal.sdp})
@@ -86,25 +122,69 @@ class WebRTCService {
     const localDescription = await this.waitForIceGatheringComplete(pc);
 
     return {
-      protocolVersion: 1,
+      protocolVersion: sessionPatch.protocolVersion,
       type: SIGNAL_TYPES.ANSWER,
       peerId: localPeerId,
       targetPeerId: peerId,
       identity: localIdentity,
-      sessionSecret: offerSignal.sessionSecret,
       sdp: localDescription.sdp,
-      sentAt: Date.now()
+      sentAt: Date.now(),
+      ...answerExtras
     };
   }
 
-  async acceptAnswer({peerId, answerSignal}) {
+  async acceptAnswer({peerId, answerSignal, localPeerId, localIdentity}) {
     const pc = this.ensurePeerConnection(peerId, {initiator: true});
+    const existingSession = this.peerSessions.get(peerId) || {
+      sendSeq: 0,
+      lastReceivedSeq: 0
+    };
+    const protocolVersion = Number(answerSignal.protocolVersion || 1);
 
-    const existingSession = this.peerSessions.get(peerId) || {};
-    this.peerSessions.set(peerId, {
-      secret: existingSession.secret || answerSignal.sessionSecret,
-      remoteIdentity: answerSignal.identity || existingSession.remoteIdentity
-    });
+    if (protocolVersion >= 2) {
+      if (!answerSignal.keyAgreement?.publicKeyB64 || !answerSignal.nonceB64) {
+        throw new Error('Invalid protocol v2 answer payload');
+      }
+      const sessionKey = EncryptionService.finalizeSessionAsInitiator(
+        peerId,
+        answerSignal,
+        {
+          initiatorPeerId: localPeerId || answerSignal.targetPeerId || '',
+          responderPeerId: answerSignal.peerId || peerId,
+          initiatorIdentity: localIdentity || '',
+          responderIdentity:
+            answerSignal.identity || existingSession.remoteIdentity || ''
+        }
+      );
+      this.peerSessions.set(peerId, {
+        protocolVersion: 2,
+        sessionKey,
+        legacySecret: null,
+        remoteIdentity:
+          answerSignal.identity || existingSession.remoteIdentity || null,
+        sendSeq: 0,
+        lastReceivedSeq: 0
+      });
+    } else {
+      // TODO: Remove v1 compatibility path once all clients migrate to protocol v2.
+      console.warn(
+        '[security] Accepting legacy protocol v1 answer. sessionSecret-based mode is deprecated.'
+      );
+      const legacySecret =
+        existingSession.legacySecret || answerSignal.sessionSecret;
+      if (!legacySecret) {
+        throw new Error('Missing legacy sessionSecret for protocol v1');
+      }
+      this.peerSessions.set(peerId, {
+        protocolVersion: 1,
+        sessionKey: EncryptionService.deriveLegacySessionKey(legacySecret),
+        legacySecret,
+        remoteIdentity:
+          answerSignal.identity || existingSession.remoteIdentity || null,
+        sendSeq: existingSession.sendSeq || 0,
+        lastReceivedSeq: existingSession.lastReceivedSeq || 0
+      });
+    }
 
     await pc.setRemoteDescription(
       new RTCSessionDescription({type: 'answer', sdp: answerSignal.sdp})
@@ -118,15 +198,30 @@ class WebRTCService {
     }
 
     const session = this.peerSessions.get(peerId);
-    if (!session || !session.secret) {
-      throw new Error('No peer session secret available');
+    if (!session || !session.sessionKey) {
+      throw new Error('No peer session key available');
     }
 
-    const envelope = EncryptionService.packSecureEnvelope(
-      payload,
-      session.secret,
-      senderId
-    );
+    let envelope;
+    if (session.protocolVersion === 1 && session.legacySecret) {
+      envelope = EncryptionService.packLegacyEnvelope(
+        payload,
+        session.legacySecret,
+        senderId
+      );
+    } else {
+      const seq = (session.sendSeq || 0) + 1;
+      envelope = EncryptionService.packSecureEnvelope(
+        payload,
+        session.sessionKey,
+        senderId,
+        seq
+      );
+      this.peerSessions.set(peerId, {
+        ...session,
+        sendSeq: seq
+      });
+    }
 
     channel.send(JSON.stringify({type: 'secure', envelope}));
   }
@@ -240,20 +335,40 @@ class WebRTCService {
     }
 
     const session = this.peerSessions.get(peerId);
-    if (!session || !session.secret) {
+    if (!session || !session.sessionKey) {
       if (this.callbacks.onError) {
-        this.callbacks.onError(new Error(`Missing session secret for ${peerId}`));
+        this.callbacks.onError(new Error(`Missing session key for ${peerId}`));
       }
       return;
     }
 
     try {
-      const decrypted = EncryptionService.unpackSecureEnvelope(
-        message.envelope,
-        session.secret
-      );
+      let unpacked;
+      if (message.envelope?.v === 2) {
+        unpacked = EncryptionService.unpackSecureEnvelope(
+          message.envelope,
+          session.sessionKey
+        );
+        if (unpacked.seq <= (session.lastReceivedSeq || 0)) {
+          return;
+        }
+        this.peerSessions.set(peerId, {
+          ...session,
+          lastReceivedSeq: unpacked.seq
+        });
+      } else {
+        const legacySecret = session.legacySecret;
+        if (!legacySecret) {
+          throw new Error('Missing legacy sessionSecret for protocol v1 envelope');
+        }
+        unpacked = EncryptionService.unpackLegacyEnvelope(
+          message.envelope,
+          legacySecret
+        );
+      }
+
       if (this.callbacks.onSecureMessage) {
-        this.callbacks.onSecureMessage(peerId, decrypted);
+        this.callbacks.onSecureMessage(peerId, unpacked.payload);
       }
     } catch (error) {
       if (this.callbacks.onError) {

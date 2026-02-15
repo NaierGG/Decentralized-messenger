@@ -10,9 +10,10 @@ WebRTC DataChannel based decentralized 1:1 messenger for React Native (iOS/Andro
 - WebRTC DataChannel text messaging
 - Message status: `sending`, `sent`, `delivered`, `read`, `failed`
 - Local persistence via AsyncStorage (native) / localStorage (web)
-- Basic E2E layer (AES + HMAC with `crypto-js`)
+- E2E layer v2 (`ECDH P-256 + HKDF-SHA256 + AES-256-GCM`)
+- Replay protection (`seq` monotonic counter per peer session)
 - Network status detection (native)
-- Reconnect signal generation (ICE restart)
+- Reconnect signal generation (ICE restart + exponential backoff)
 
 ## Native app (React Native)
 
@@ -29,6 +30,12 @@ cd ios
 pod install
 cd ..
 ```
+
+Native runtime additions:
+- `react-native-quick-crypto`
+- `react-native-keychain`
+- `react-native-get-random-values`
+- `buffer` polyfill in `index.js`
 
 3. Run Metro:
 
@@ -72,6 +79,45 @@ npm run web:build
 Notes:
 - Web client currently supports signal copy/paste + QR display.
 - Camera QR scanning for web is not wired yet.
+
+## Protocol v2 (current)
+
+- Signal payload no longer includes `sessionSecret`.
+- Offer/Answer include ephemeral `keyAgreement.publicKeyB64` and nonces.
+- Session key derivation:
+  - `sharedSecret = ECDH(localPrivate, remotePublic)`
+  - `sessionKey = HKDF-SHA256(sharedSecret, salt=offerNonce||answerNonce, info="p2pmsg-v2|...")`
+- Envelope format:
+  - `{v:2, senderId, sentAt, seq, ivB64, cipherTextB64, tagB64?}`
+  - AAD: `senderId|sentAt|seq`
+- Replay prevention:
+  - receiver drops envelope when `seq <= lastSeq`.
+
+Legacy notes:
+- Protocol v1 (`sessionSecret`-based) is still accepted for temporary compatibility.
+- Code contains warnings and TODO comments to remove v1 path after migration.
+
+## TURN configuration
+
+Default is STUN-only.
+
+Native (React Native):
+- Keep `DEFAULT_ICE_SERVERS` as-is.
+- Provide TURN servers at runtime via either:
+  - `global.__P2P_TURN_ICE_SERVERS__ = [{urls, username, credential}]`
+  - or `P2P_TURN_ICE_SERVERS` env JSON (same shape).
+
+Web (Vite):
+- `VITE_TURN_URLS=turn:your.turn.server:3478,turns:your.turn.server:5349`
+- `VITE_TURN_USERNAME=...`
+- `VITE_TURN_CREDENTIAL=...`
+
+## Identity seed migration (native)
+
+- `identitySeed` is no longer persisted in AsyncStorage profile.
+- On app startup, if legacy profile contains `identitySeed`:
+  - move it to Keychain (`SecureStorageService`)
+  - remove it from profile JSON and persist updated profile.
 
 ## Required native permissions
 

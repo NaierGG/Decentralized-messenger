@@ -239,23 +239,26 @@ function App() {
     });
   };
 
-  const createProfile = () => {
+  const createProfile = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
       setErrorText('Display name is required.');
       return;
     }
-    const identity = createIdentity();
-    const created = {
-      id: generateId(),
-      name: trimmed,
-      identityFingerprint: identity.publicFingerprint,
-      identitySeed: identity.privateSeed,
-      createdAt: now()
-    };
-    setProfile(created);
-    setScreen('contacts');
-    setErrorText('');
+    try {
+      const identity = await createIdentity();
+      const created = {
+        id: generateId(),
+        name: trimmed,
+        identityFingerprint: identity.publicFingerprint,
+        createdAt: now()
+      };
+      setProfile(created);
+      setScreen('contacts');
+      setErrorText('');
+    } catch (error) {
+      setErrorText(error.message || 'Failed to create profile');
+    }
   };
 
   const sendMessage = async () => {
@@ -397,7 +400,12 @@ function App() {
           id: remotePeerId,
           name: peerNameInput.trim() || `Peer ${remotePeerId.slice(0, 6)}`
         });
-        await manager.acceptAnswer({peerId: remotePeerId, answerSignal: signal});
+        await manager.acceptAnswer({
+          peerId: remotePeerId,
+          answerSignal: signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint
+        });
         setPeerIdInput(remotePeerId);
       } else {
         throw new Error('Unsupported signal type');

@@ -55,3 +55,26 @@ export const DEFAULT_ICE_SERVERS = [
   {urls: 'stun:stun.l.google.com:19302'},
   {urls: 'stun:stun1.l.google.com:19302'}
 ];
+
+const parseTurnServersFromEnv = () => {
+  const raw = global?.process?.env?.P2P_TURN_ICE_SERVERS;
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+};
+
+export const TURN_ICE_SERVERS = (() => {
+  if (Array.isArray(global?.__P2P_TURN_ICE_SERVERS__)) {
+    return global.__P2P_TURN_ICE_SERVERS__;
+  }
+  return parseTurnServersFromEnv();
+})();
+
+export const ICE_SERVERS = [...DEFAULT_ICE_SERVERS, ...TURN_ICE_SERVERS];

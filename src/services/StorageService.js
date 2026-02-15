@@ -24,7 +24,11 @@ class StorageService {
   }
 
   saveProfile(profile) {
-    return this.setJson(STORAGE_KEYS.PROFILE, profile);
+    if (!profile) {
+      return this.setJson(STORAGE_KEYS.PROFILE, profile);
+    }
+    const {identitySeed: _identitySeed, ...safeProfile} = profile;
+    return this.setJson(STORAGE_KEYS.PROFILE, safeProfile);
   }
 
   getPeers() {

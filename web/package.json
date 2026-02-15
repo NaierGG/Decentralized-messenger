@@ -10,7 +10,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "crypto-js": "^4.2.0",
     "P2PMessenger": "file:..",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",

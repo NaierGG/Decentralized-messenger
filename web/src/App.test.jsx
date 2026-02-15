@@ -18,13 +18,13 @@ describe('web app onboarding flow', () => {
     ).toBeInTheDocument();
   });
 
-  it('creates profile and moves to contacts', () => {
+  it('creates profile and moves to contacts', async () => {
     render(<App />);
     fireEvent.change(screen.getByLabelText(/Who are you/i), {
       target: {value: 'Tester'}
     });
     fireEvent.click(screen.getByRole('button', {name: /Create Profile & Start/i}));
-    expect(screen.getByTestId('contacts-screen')).toBeInTheDocument();
+    expect(await screen.findByTestId('contacts-screen')).toBeInTheDocument();
     expect(screen.getByText(/P2P Messenger/i)).toBeInTheDocument();
   });
 });

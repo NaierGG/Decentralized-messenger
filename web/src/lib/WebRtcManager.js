@@ -1,4 +1,14 @@
-import {createSessionSecret, packEnvelope, unpackEnvelope} from './crypto';
+import {
+  createSessionSecret,
+  deriveLegacySessionKey,
+  finalizeSessionAsInitiator,
+  initSessionAsInitiator,
+  initSessionAsResponder,
+  packLegacyEnvelope,
+  packSecureEnvelope,
+  unpackLegacyEnvelope,
+  unpackSecureEnvelope
+} from './crypto';
 
 const CONNECTION_STATES = {
   CONNECTED: 'connected',
@@ -6,6 +16,38 @@ const CONNECTION_STATES = {
   FAILED: 'failed',
   DISCONNECTED: 'disconnected',
   CLOSED: 'closed'
+};
+
+const DEFAULT_ICE_SERVERS = [
+  {urls: 'stun:stun.l.google.com:19302'},
+  {urls: 'stun:stun1.l.google.com:19302'}
+];
+
+const parseTurnIceServers = () => {
+  const urlsValue = import.meta.env.VITE_TURN_URLS;
+  if (!urlsValue) {
+    return [];
+  }
+
+  const urls = urlsValue
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (!urls.length) {
+    return [];
+  }
+
+  const username = import.meta.env.VITE_TURN_USERNAME || undefined;
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL || undefined;
+
+  return [
+    {
+      urls,
+      ...(username ? {username} : {}),
+      ...(credential ? {credential} : {})
+    }
+  ];
 };
 
 const toConnectionState = (state) => {
@@ -31,10 +73,7 @@ export default class WebRtcManager {
     this.peerSessions = new Map();
     this.callbacks = {};
     this.iceConfig = {
-      iceServers: [
-        {urls: 'stun:stun.l.google.com:19302'},
-        {urls: 'stun:stun1.l.google.com:19302'}
-      ]
+      iceServers: [...DEFAULT_ICE_SERVERS, ...parseTurnIceServers()]
     };
   }
 
@@ -47,37 +86,72 @@ export default class WebRtcManager {
 
   async createOffer({peerId, localPeerId, localIdentity, restartIce = false}) {
     const pc = this.ensurePeerConnection(peerId, {initiator: true});
-    const session = this.peerSessions.get(peerId) || {
-      secret: createSessionSecret(),
-      remoteIdentity: null
-    };
-    this.peerSessions.set(peerId, session);
+    const offerExtras = await initSessionAsInitiator(peerId, {
+      peerId: localPeerId,
+      identity: localIdentity
+    });
 
     const offer = await pc.createOffer({iceRestart: restartIce});
     await pc.setLocalDescription(offer);
     const localDescription = await this.waitForIceGatheringComplete(pc);
 
     return {
-      protocolVersion: 1,
+      protocolVersion: 2,
       type: 'offer',
       peerId: localPeerId,
       targetPeerId: peerId,
       identity: localIdentity,
-      sessionSecret: session.secret,
       sdp: localDescription.sdp,
       sentAt: Date.now(),
-      restartIce
+      restartIce,
+      ...offerExtras
     };
   }
 
   async createAnswer({offerSignal, localPeerId, localIdentity}) {
     const peerId = offerSignal.peerId;
     const pc = this.ensurePeerConnection(peerId, {initiator: false, forceNew: true});
+    const protocolVersion = Number(offerSignal.protocolVersion || 1);
 
-    this.peerSessions.set(peerId, {
-      secret: offerSignal.sessionSecret,
-      remoteIdentity: offerSignal.identity || null
-    });
+    let sessionPatch = {
+      protocolVersion,
+      remoteIdentity: offerSignal.identity || null,
+      sendSeq: 0,
+      lastReceivedSeq: 0
+    };
+    let answerExtras = {};
+
+    if (protocolVersion >= 2) {
+      if (!offerSignal.keyAgreement?.publicKeyB64 || !offerSignal.nonceB64) {
+        throw new Error('Invalid protocol v2 offer payload');
+      }
+      const result = await initSessionAsResponder(peerId, offerSignal, {
+        peerId: localPeerId,
+        identity: localIdentity
+      });
+      sessionPatch = {
+        ...sessionPatch,
+        protocolVersion: 2,
+        sessionKey: result.sessionKey,
+        legacySecret: null
+      };
+      answerExtras = result.answerExtraFields;
+    } else {
+      // TODO: Remove v1 compatibility path once all clients migrate to protocol v2.
+      console.warn(
+        '[security] Accepting legacy protocol v1 offer. sessionSecret-based mode is deprecated.'
+      );
+      const legacySecret = offerSignal.sessionSecret || createSessionSecret();
+      sessionPatch = {
+        ...sessionPatch,
+        protocolVersion: 1,
+        sessionKey: await deriveLegacySessionKey(legacySecret),
+        legacySecret
+      };
+      answerExtras = {sessionSecret: legacySecret};
+    }
+
+    this.peerSessions.set(peerId, sessionPatch);
 
     await pc.setRemoteDescription({type: 'offer', sdp: offerSignal.sdp});
     const answer = await pc.createAnswer();
@@ -85,25 +159,65 @@ export default class WebRtcManager {
     const localDescription = await this.waitForIceGatheringComplete(pc);
 
     return {
-      protocolVersion: 1,
+      protocolVersion: sessionPatch.protocolVersion,
       type: 'answer',
       peerId: localPeerId,
       targetPeerId: peerId,
       identity: localIdentity,
-      sessionSecret: offerSignal.sessionSecret,
       sdp: localDescription.sdp,
-      sentAt: Date.now()
+      sentAt: Date.now(),
+      ...answerExtras
     };
   }
 
-  async acceptAnswer({peerId, answerSignal}) {
+  async acceptAnswer({peerId, answerSignal, localPeerId, localIdentity}) {
     const pc = this.ensurePeerConnection(peerId, {initiator: true});
+    const existingSession = this.peerSessions.get(peerId) || {
+      sendSeq: 0,
+      lastReceivedSeq: 0
+    };
+    const protocolVersion = Number(answerSignal.protocolVersion || 1);
 
-    const existingSession = this.peerSessions.get(peerId) || {};
-    this.peerSessions.set(peerId, {
-      secret: existingSession.secret || answerSignal.sessionSecret,
-      remoteIdentity: answerSignal.identity || existingSession.remoteIdentity
-    });
+    if (protocolVersion >= 2) {
+      if (!answerSignal.keyAgreement?.publicKeyB64 || !answerSignal.nonceB64) {
+        throw new Error('Invalid protocol v2 answer payload');
+      }
+      const sessionKey = await finalizeSessionAsInitiator(peerId, answerSignal, {
+        initiatorPeerId: localPeerId || answerSignal.targetPeerId || '',
+        responderPeerId: answerSignal.peerId || peerId,
+        initiatorIdentity: localIdentity || '',
+        responderIdentity:
+          answerSignal.identity || existingSession.remoteIdentity || ''
+      });
+      this.peerSessions.set(peerId, {
+        protocolVersion: 2,
+        sessionKey,
+        legacySecret: null,
+        remoteIdentity:
+          answerSignal.identity || existingSession.remoteIdentity || null,
+        sendSeq: 0,
+        lastReceivedSeq: 0
+      });
+    } else {
+      // TODO: Remove v1 compatibility path once all clients migrate to protocol v2.
+      console.warn(
+        '[security] Accepting legacy protocol v1 answer. sessionSecret-based mode is deprecated.'
+      );
+      const legacySecret =
+        existingSession.legacySecret || answerSignal.sessionSecret;
+      if (!legacySecret) {
+        throw new Error('Missing legacy sessionSecret for protocol v1');
+      }
+      this.peerSessions.set(peerId, {
+        protocolVersion: 1,
+        sessionKey: await deriveLegacySessionKey(legacySecret),
+        legacySecret,
+        remoteIdentity:
+          answerSignal.identity || existingSession.remoteIdentity || null,
+        sendSeq: existingSession.sendSeq || 0,
+        lastReceivedSeq: existingSession.lastReceivedSeq || 0
+      });
+    }
 
     await pc.setRemoteDescription({type: 'answer', sdp: answerSignal.sdp});
   }
@@ -114,11 +228,22 @@ export default class WebRtcManager {
       throw new Error('DataChannel is not open');
     }
     const session = this.peerSessions.get(peerId);
-    if (!session || !session.secret) {
-      throw new Error('No session secret available');
+    if (!session || !session.sessionKey) {
+      throw new Error('No session key available');
     }
 
-    const envelope = packEnvelope(payload, session.secret, senderId);
+    let envelope;
+    if (session.protocolVersion === 1 && session.legacySecret) {
+      envelope = await packLegacyEnvelope(payload, session.legacySecret, senderId);
+    } else {
+      const seq = (session.sendSeq || 0) + 1;
+      envelope = await packSecureEnvelope(payload, session.sessionKey, senderId, seq);
+      this.peerSessions.set(peerId, {
+        ...session,
+        sendSeq: seq
+      });
+    }
+
     channel.send(JSON.stringify({type: 'secure', envelope}));
   }
 
@@ -190,28 +315,46 @@ export default class WebRtcManager {
     channel.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
-        this.handleIncomingPayload(peerId, parsed);
+        this.handleIncomingPayload(peerId, parsed).catch((error) => {
+          this.callbacks.onError?.(error);
+        });
       } catch (error) {
         this.callbacks.onError?.(error);
       }
     };
   }
 
-  handleIncomingPayload(peerId, message) {
+  async handleIncomingPayload(peerId, message) {
     if (message.type !== 'secure' || !message.envelope) {
       this.callbacks.onRawMessage?.(peerId, message);
       return;
     }
 
     const session = this.peerSessions.get(peerId);
-    if (!session || !session.secret) {
-      this.callbacks.onError?.(new Error(`Missing session secret for ${peerId}`));
+    if (!session || !session.sessionKey) {
+      this.callbacks.onError?.(new Error(`Missing session key for ${peerId}`));
       return;
     }
 
     try {
-      const decrypted = unpackEnvelope(message.envelope, session.secret);
-      this.callbacks.onSecureMessage?.(peerId, decrypted);
+      let unpacked;
+      if (message.envelope?.v === 2) {
+        unpacked = await unpackSecureEnvelope(message.envelope, session.sessionKey);
+        if (unpacked.seq <= (session.lastReceivedSeq || 0)) {
+          return;
+        }
+        this.peerSessions.set(peerId, {
+          ...session,
+          lastReceivedSeq: unpacked.seq
+        });
+      } else {
+        const legacySecret = session.legacySecret;
+        if (!legacySecret) {
+          throw new Error('Missing legacy sessionSecret for protocol v1 envelope');
+        }
+        unpacked = await unpackLegacyEnvelope(message.envelope, legacySecret);
+      }
+      this.callbacks.onSecureMessage?.(peerId, unpacked.payload);
     } catch (error) {
       this.callbacks.onError?.(error);
     }

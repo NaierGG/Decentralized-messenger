@@ -12,8 +12,10 @@ import {CONNECTION_STATES, MESSAGE_STATUS, SIGNAL_TYPES} from '../utils/constant
 import {generateId, now} from '../utils/crypto';
 import WebRTCService from '../services/WebRTCService';
 import StorageService from '../services/StorageService';
+import SecureStorageService from '../services/SecureStorageService';
 import EncryptionService from '../services/EncryptionService';
 import SignalingService from '../services/SignalingService';
+import ReconnectionManager from '../services/ReconnectionManager';
 
 const AppContext = createContext(null);
 
@@ -41,6 +43,7 @@ export const AppProvider = ({children}) => {
   const activeChatPeerRef = useRef(activeChatPeerId);
   const reconnectSignalsRef = useRef(reconnectSignals);
   const reconnectGeneratingRef = useRef({});
+  const reconnectionManagerRef = useRef(new ReconnectionManager());
 
   useEffect(() => {
     let mounted = true;
@@ -56,7 +59,19 @@ export const AppProvider = ({children}) => {
         return;
       }
 
-      setProfile(storedProfile);
+      let normalizedProfile = storedProfile;
+      if (storedProfile?.identitySeed) {
+        await SecureStorageService.setIdentitySeed(storedProfile.identitySeed);
+        const {identitySeed: _identitySeed, ...profileWithoutSeed} = storedProfile;
+        normalizedProfile = profileWithoutSeed;
+        await StorageService.saveProfile(profileWithoutSeed);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setProfile(normalizedProfile);
       setPeers(storedPeers);
       setMessagesByPeer(storedMessages);
       setReady(true);
@@ -166,6 +181,7 @@ export const AppProvider = ({children}) => {
 
         if (state === CONNECTION_STATES.CONNECTED) {
           reconnectGeneratingRef.current[peerId] = false;
+          reconnectionManagerRef.current.reset(peerId);
           setReconnectSignals((previous) => {
             if (!previous[peerId]) {
               return previous;
@@ -195,23 +211,39 @@ export const AppProvider = ({children}) => {
           return;
         }
 
-        reconnectGeneratingRef.current[peerId] = true;
+        reconnectionManagerRef.current.schedule(peerId, async () => {
+          if (!profileRef.current || reconnectSignalsRef.current[peerId]) {
+            return false;
+          }
 
-        webrtc
-          .createOffer({
-            peerId,
-            localPeerId: profileRef.current.id,
-            localIdentity: profileRef.current.identityFingerprint,
-            restartIce: true
-          })
-          .then((offerSignal) => {
+          if (reconnectGeneratingRef.current[peerId]) {
+            return true;
+          }
+
+          reconnectGeneratingRef.current[peerId] = true;
+
+          try {
+            const offerSignal = await webrtc.createOffer({
+              peerId,
+              localPeerId: profileRef.current.id,
+              localIdentity: profileRef.current.identityFingerprint,
+              restartIce: true
+            });
             const encoded = SignalingService.toQrString(offerSignal);
-            setReconnectSignals((previous) => ({...previous, [peerId]: encoded}));
-          })
-          .catch(() => null)
-          .finally(() => {
+
+            setReconnectSignals((previous) => {
+              if (previous[peerId]) {
+                return previous;
+              }
+              return {...previous, [peerId]: encoded};
+            });
+            return false;
+          } catch (error) {
+            return true;
+          } finally {
             reconnectGeneratingRef.current[peerId] = false;
-          });
+          }
+        });
       },
       onError: () => {
         // Keep app resilient during signaling and WebRTC edge failures.
@@ -219,6 +251,7 @@ export const AppProvider = ({children}) => {
     });
 
     return () => {
+      reconnectionManagerRef.current.clearAll();
       webrtc.closeAll();
     };
   }, []);
@@ -252,17 +285,24 @@ export const AppProvider = ({children}) => {
       }
 
       if (profile) {
-        const updated = {...profile, name: trimmedName};
+        const {identitySeed: _identitySeed, ...safeProfile} = profile;
+        const updated = {...safeProfile, name: trimmedName};
         setProfile(updated);
         return updated;
       }
 
       const identity = EncryptionService.createIdentity();
+      const stored = await SecureStorageService.setIdentitySeed(
+        identity.privateSeed
+      );
+      if (!stored) {
+        throw new Error('Failed to store identity seed securely');
+      }
+
       const created = {
         id: generateId(),
         name: trimmedName,
         identityFingerprint: identity.publicFingerprint,
-        identitySeed: identity.privateSeed,
         createdAt: now()
       };
       setProfile(created);
@@ -414,6 +454,8 @@ export const AppProvider = ({children}) => {
         throw new Error('Peer ID is required');
       }
 
+      reconnectionManagerRef.current.reset(normalizedPeerId);
+
       const offerSignal = await webrtcRef.current.createOffer({
         peerId: normalizedPeerId,
         localPeerId: profile.id,
@@ -469,7 +511,9 @@ export const AppProvider = ({children}) => {
 
         await webrtcRef.current.acceptAnswer({
           peerId: remotePeerId,
-          answerSignal: signal
+          answerSignal: signal,
+          localPeerId: profile.id,
+          localIdentity: profile.identityFingerprint
         });
 
         return {
