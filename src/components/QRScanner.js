@@ -1,63 +1,64 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import QRCodeScanner from 'react-native-qrcode-scanner';
+import {useTheme} from '../context/ThemeContext';
 
-const COLORS = {
-  surface: '#111022',
-  border: 'rgba(255,255,255,0.2)',
-  text: '#E2E8F0',
-  muted: '#94A3B8',
-  primary: '#6764F2'
+const QRScanner = ({onRead}) => {
+  const {colors, spacing, typography} = useTheme();
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        wrapper: {
+          marginTop: spacing.sm,
+          borderRadius: spacing.sm,
+          overflow: 'hidden',
+          backgroundColor: colors.surface02,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        title: {
+          paddingHorizontal: spacing.sm,
+          paddingTop: spacing.xs,
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary
+        },
+        caption: {
+          paddingHorizontal: spacing.sm,
+          paddingBottom: spacing.xs,
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        marker: {
+          borderColor: colors.primary
+        },
+        camera: {
+          height: 260
+        },
+        container: {
+          alignItems: 'stretch'
+        }
+      }),
+    [colors, spacing, typography]
+  );
+
+  return (
+    <View style={styles.wrapper}>
+      <Text style={styles.title}>QR 스캐너</Text>
+      <Text style={styles.caption}>프레임 안에 연결 코드를 맞춰 주세요</Text>
+      <QRCodeScanner
+        onRead={({data}) => onRead(data)}
+        topContent={<View />}
+        bottomContent={<View />}
+        fadeIn={false}
+        reactivate={false}
+        showMarker
+        markerStyle={styles.marker}
+        cameraStyle={styles.camera}
+        containerStyle={styles.container}
+      />
+    </View>
+  );
 };
-
-const QRScanner = ({onRead}) => (
-  <View style={styles.wrapper}>
-    <Text style={styles.title}>QR Scanner</Text>
-    <Text style={styles.caption}>Align offer/answer QR in frame</Text>
-    <QRCodeScanner
-      onRead={({data}) => onRead(data)}
-      topContent={<View />}
-      bottomContent={<View />}
-      fadeIn={false}
-      reactivate={false}
-      showMarker
-      markerStyle={styles.marker}
-      cameraStyle={styles.camera}
-      containerStyle={styles.container}
-    />
-  </View>
-);
-
-const styles = StyleSheet.create({
-  wrapper: {
-    marginTop: 12,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border
-  },
-  title: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    color: COLORS.text,
-    fontWeight: '700'
-  },
-  caption: {
-    paddingHorizontal: 12,
-    paddingBottom: 10,
-    color: COLORS.muted,
-    fontSize: 12
-  },
-  marker: {
-    borderColor: COLORS.primary
-  },
-  camera: {
-    height: 260
-  },
-  container: {
-    alignItems: 'stretch'
-  }
-});
 
 export default QRScanner;

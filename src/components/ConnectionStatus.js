@@ -1,29 +1,45 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {CONNECTION_STATES} from '../utils/constants';
+import {useTheme} from '../context/ThemeContext';
 
-const COLORS = {
-  connected: '#10B981',
-  connecting: '#F59E0B',
-  failed: '#EF4444',
-  disconnected: '#64748B'
-};
-
-const metaByState = (state) => {
+const metaByState = (state, colors) => {
   if (state === CONNECTION_STATES.CONNECTED) {
-    return {label: 'P2P Connected', color: COLORS.connected};
+    return {label: 'P2P 연결됨', color: colors.online};
   }
   if (state === CONNECTION_STATES.CONNECTING) {
-    return {label: 'Connecting', color: COLORS.connecting};
+    return {label: '연결 중', color: colors.connecting};
   }
   if (state === CONNECTION_STATES.FAILED) {
-    return {label: 'Failed', color: COLORS.failed};
+    return {label: '연결 실패', color: colors.error};
   }
-  return {label: 'Disconnected', color: COLORS.disconnected};
+  return {label: '연결 안 됨', color: colors.offline};
 };
 
 const ConnectionStatus = ({state}) => {
-  const meta = metaByState(state);
+  const {colors, typography} = useTheme();
+  const meta = metaByState(state, colors);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        row: {
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        dot: {
+          width: 7,
+          height: 7,
+          borderRadius: 4,
+          marginRight: 5
+        },
+        label: {
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold)
+        }
+      }),
+    [typography]
+  );
+
   return (
     <View style={styles.row}>
       <View style={[styles.dot, {backgroundColor: meta.color}]} />
@@ -31,22 +47,5 @@ const ConnectionStatus = ({state}) => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    marginRight: 5
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '700'
-  }
-});
 
 export default ConnectionStatus;

@@ -36,12 +36,18 @@ import {
 } from './lib/WebRtcManager';
 import { createIdentity, generateId, now } from './lib/crypto';
 import { fromSignalString, toSignalString } from './lib/signal';
+import {
+  clearLegacyState,
+  getPersistedState,
+  makeBackupPayload,
+  parseBackupPayload,
+  readLegacyState,
+  setPersistedState,
+} from './lib/storage';
 
 /* ────────────────────────────────────────────────
    Constants
    ──────────────────────────────────────────────── */
-const STORAGE_KEY = 'veil_state_v2';
-
 const MESSAGE_STATUS = {
   SENDING: 'sending',
   SENT: 'sent',
@@ -57,15 +63,6 @@ const shortId = (v) => {
   if (!v) return '';
   if (v.length <= 14) return v;
   return `${v.slice(0, 6)}...${v.slice(-4)}`;
-};
-
-const readState = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
 };
 
 const formatTime = (ts) => {
@@ -114,16 +111,16 @@ const FingerprintIcon = ({ className }) => (
    Main App
    ──────────────────────────────────────────────── */
 function App() {
-  const persisted = readState();
-  const [profile, setProfile] = useState(persisted?.profile || null);
-  const [peers, setPeers] = useState(persisted?.peers || []);
-  const [messagesByPeer, setMessagesByPeer] = useState(persisted?.messagesByPeer || {});
+  const [profile, setProfile] = useState(null);
+  const [peers, setPeers] = useState([]);
+  const [messagesByPeer, setMessagesByPeer] = useState({});
   const [connectionStates, setConnectionStates] = useState({});
 
   // Navigation
-  const [screen, setScreen] = useState(persisted?.profile ? 'contacts' : 'onboarding');
+  const [screen, setScreen] = useState('onboarding');
   const [activeTab, setActiveTab] = useState('chats');
   const [activePeerId, setActivePeerId] = useState(null);
+  const [hydrated, setHydrated] = useState(false);
 
   // Inputs
   const [name, setName] = useState('');
@@ -141,13 +138,61 @@ function App() {
   const managerRef = useRef(null);
   const activePeerRef = useRef(activePeerId);
   const messagesEndRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const restoreInputRef = useRef(null);
 
   useEffect(() => { activePeerRef.current = activePeerId; }, [activePeerId]);
 
+  // Initial load: IndexedDB first, then legacy localStorage fallback.
+  useEffect(() => {
+    let mounted = true;
+
+    const hydrate = async () => {
+      try {
+        const persisted = await getPersistedState();
+        const legacy = persisted ? null : readLegacyState();
+        const next = persisted || legacy;
+
+        if (!mounted || !next) {
+          if (mounted) setHydrated(true);
+          return;
+        }
+
+        setProfile(next.profile);
+        setPeers(next.peers);
+        setMessagesByPeer(next.messagesByPeer);
+        setScreen(next.profile ? 'contacts' : 'onboarding');
+
+        if (legacy) {
+          await setPersistedState(next);
+          clearLegacyState();
+        }
+      } catch (e) {
+        if (mounted) {
+          setErrorText('Failed to load saved data');
+        }
+      } finally {
+        if (mounted) {
+          setHydrated(true);
+        }
+      }
+    };
+
+    hydrate();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // Persist state
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profile, peers, messagesByPeer }));
-  }, [profile, peers, messagesByPeer]);
+    if (!hydrated) return;
+
+    setPersistedState({ profile, peers, messagesByPeer }).catch(() => {
+      setErrorText('Failed to save data');
+    });
+  }, [hydrated, profile, peers, messagesByPeer]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -319,6 +364,85 @@ function App() {
     try { await navigator.clipboard.writeText(text); } catch { setErrorText('Clipboard write failed.'); }
   };
 
+  const backupState = () => {
+    try {
+      const payload = makeBackupPayload({ profile, peers, messagesByPeer });
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `veil-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setErrorText('');
+    } catch {
+      setErrorText('Backup failed');
+    }
+  };
+
+  const triggerRestore = () => restoreInputRef.current?.click();
+
+  const handleRestoreFromFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      const restored = parseBackupPayload(parsed);
+      setProfile(restored.profile);
+      setPeers(restored.peers);
+      setMessagesByPeer(restored.messagesByPeer);
+      setScreen(restored.profile ? 'contacts' : 'onboarding');
+      setActiveTab('chats');
+      setActivePeerId(null);
+      await setPersistedState(restored);
+      setErrorText('');
+    } catch {
+      setErrorText('Restore failed: invalid backup file');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const key = event.key.toLowerCase();
+
+      if ((event.ctrlKey || event.metaKey) && key === 'k') {
+        event.preventDefault();
+        setActiveTab('chats');
+        setScreen('contacts');
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        if (['chat', 'addpeer', 'settings', 'nodes'].includes(screen)) {
+          event.preventDefault();
+          setActiveTab('chats');
+          setScreen('contacts');
+        }
+        return;
+      }
+
+      if (
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        screen === 'chat' &&
+        compose.trim()
+      ) {
+        const tag = document.activeElement?.tagName;
+        if (tag !== 'TEXTAREA') {
+          event.preventDefault();
+          sendMessage();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [compose, screen, sendMessage]);
+
   const getConnState = (peerId) => connectionStates[peerId] || CONNECTION_STATES.DISCONNECTED;
   const isConnected = (peerId) => getConnState(peerId) === CONNECTION_STATES.CONNECTED;
   const isConnecting = (peerId) => getConnState(peerId) === CONNECTION_STATES.CONNECTING;
@@ -471,6 +595,7 @@ function App() {
       <div className="contacts-search">
         <Search size={18} />
         <input
+          ref={searchInputRef}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search by ID or Alias..."
@@ -619,7 +744,6 @@ function App() {
               value={compose}
               onChange={(e) => setCompose(e.target.value)}
               placeholder="Encrypted Message..."
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             />
             <Lock size={14} className="compose-lock-icon" />
           </div>
@@ -821,6 +945,25 @@ function App() {
         <div className="settings-item">
           <span className="settings-item-label">Key Storage</span>
           <span className="settings-item-value">Local Device</span>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group-label">Data</div>
+        <div className="settings-actions">
+          <button className="settings-action-btn" onClick={backupState}>
+            Backup Data
+          </button>
+          <button className="settings-action-btn" onClick={triggerRestore}>
+            Restore Data
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden-file-input"
+            onChange={handleRestoreFromFile}
+          />
         </div>
       </div>
     </section>

@@ -11,30 +11,16 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {useApp} from '../context/AppContext';
 import {CONNECTION_STATES} from '../utils/constants';
 import {toShortPeerLabel} from '../utils/crypto';
+import {useTheme} from '../context/ThemeContext';
 
-const COLORS = {
-  bg: '#111022',
-  surface: '#1C1B2E',
-  surfaceHover: '#25243A',
-  text: '#F8FAFC',
-  muted: '#A4ADC0',
-  primary: '#6764F2',
-  border: 'rgba(255,255,255,0.09)',
-  online: '#10B981',
-  connecting: '#F59E0B',
-  offline: '#64748B'
-};
-
-const STATUS_FILTERS = ['All Peers', 'Online', 'Recent'];
-
-const stateMeta = (state) => {
+const stateMeta = (state, colors) => {
   if (state === CONNECTION_STATES.CONNECTED) {
-    return {label: 'Online', color: COLORS.online};
+    return {label: '온라인', color: colors.online};
   }
   if (state === CONNECTION_STATES.CONNECTING) {
-    return {label: 'Connecting', color: COLORS.connecting};
+    return {label: '연결 중', color: colors.connecting};
   }
-  return {label: 'Offline', color: COLORS.offline};
+  return {label: '오프라인', color: colors.offline};
 };
 
 const initials = (name) => {
@@ -57,6 +43,174 @@ const ContactsScreen = ({navigation}) => {
     getUnreadCountForPeer,
     networkOnline
   } = useApp();
+  const {colors, spacing, typography} = useTheme();
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: spacing.component.screenTop
+        },
+        header: {
+          paddingHorizontal: spacing.component.screenHorizontal,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        },
+        title: {
+          ...typography.textStyle(typography.size['2xl'], typography.weight.bold, typography.lineHeight.tight),
+          color: colors.textPrimary
+        },
+        nodeRow: {
+          marginTop: spacing.xs - 2,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        onlineDot: {
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          marginRight: 7
+        },
+        nodeText: {
+          ...typography.textStyle(typography.size.xs, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        settingsBtn: {
+          width: spacing.component.iconButtonMin,
+          height: spacing.component.iconButtonMin,
+          borderRadius: spacing.component.iconButtonMin / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        listContent: {
+          marginTop: spacing.md,
+          paddingHorizontal: spacing.sm,
+          paddingBottom: spacing['3xl'] + spacing.lg
+        },
+        emptyState: {
+          marginTop: spacing['2xl'] + spacing.sm,
+          alignItems: 'center',
+          paddingHorizontal: spacing.lg
+        },
+        emptyTitle: {
+          ...typography.textStyle(typography.size.lg, typography.weight.bold),
+          color: colors.textPrimary
+        },
+        emptyDesc: {
+          marginTop: spacing.xs,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary,
+          textAlign: 'center',
+          maxWidth: 260
+        },
+        peerCard: {
+          marginBottom: spacing.xs + 2,
+          borderRadius: spacing.md,
+          padding: spacing.sm,
+          borderWidth: 1,
+          borderColor: 'transparent',
+          backgroundColor: colors.surface01,
+          flexDirection: 'row'
+        },
+        peerCardPressed: {
+          backgroundColor: colors.surface02,
+          borderColor: colors.border
+        },
+        avatarWrap: {
+          width: 52,
+          height: 52,
+          borderRadius: spacing.sm,
+          backgroundColor: colors.surface03,
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        avatarText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.bold),
+          color: colors.textPrimary
+        },
+        statusDot: {
+          position: 'absolute',
+          right: -1,
+          bottom: -1,
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          borderWidth: 2,
+          borderColor: colors.surface01
+        },
+        peerMain: {
+          flex: 1,
+          marginLeft: spacing.sm - 1
+        },
+        peerTop: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        },
+        peerName: {
+          flex: 1,
+          ...typography.textStyle(typography.size.md, typography.weight.bold),
+          color: colors.textPrimary,
+          marginRight: spacing.xs
+        },
+        peerState: {
+          ...typography.textStyle(typography.size.xs, typography.weight.semibold)
+        },
+        peerBottom: {
+          marginTop: spacing.xxs + 1,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        lastText: {
+          flex: 1,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        unreadBadge: {
+          minWidth: 21,
+          height: 21,
+          borderRadius: 10.5,
+          paddingHorizontal: spacing.xs - 2,
+          marginLeft: spacing.xs - 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.primary
+        },
+        unreadText: {
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.bold),
+          color: colors.onPrimary
+        },
+        peerId: {
+          marginTop: spacing.xxs + 1,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular),
+          color: colors.textMuted,
+          fontFamily: typography.fontFamily.mono
+        },
+        fab: {
+          position: 'absolute',
+          right: spacing.md + 6,
+          bottom: spacing.xl - 4,
+          width: 58,
+          height: 58,
+          borderRadius: 29,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.primary,
+          shadowColor: '#000000',
+          shadowOffset: {width: 0, height: 8},
+          shadowOpacity: 0.28,
+          shadowRadius: 14,
+          elevation: 10
+        }
+      }),
+    [colors, spacing, typography]
+  );
 
   const rows = useMemo(
     () =>
@@ -65,7 +219,7 @@ const ContactsScreen = ({navigation}) => {
         const last = messages[messages.length - 1];
         return {
           ...peer,
-          lastText: last ? last.text : 'No messages yet',
+          lastText: last ? last.text : '아직 메시지가 없어요',
           unreadCount: getUnreadCountForPeer(peer.id),
           connectionState: getPeerConnectionState(peer.id)
         };
@@ -77,38 +231,26 @@ const ContactsScreen = ({navigation}) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>P2P Messenger</Text>
+          <Text style={styles.title}>Veil</Text>
           <View style={styles.nodeRow}>
             <View
               style={[
                 styles.onlineDot,
-                {backgroundColor: networkOnline ? COLORS.online : COLORS.offline}
+                {backgroundColor: networkOnline ? colors.online : colors.offline}
               ]}
             />
             <Text style={styles.nodeText}>
-              Node {networkOnline ? 'Online' : 'Offline'} - ID {toShortPeerLabel(profile?.id || '')}
+              노드 {networkOnline ? '온라인' : '오프라인'} · ID {toShortPeerLabel(profile?.id || '')}
             </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.settingsBtn}>
-          <MaterialIcons name="settings" size={18} color={COLORS.muted} />
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => navigation.navigate('settings')}
+          accessibilityRole="button"
+          accessibilityLabel="설정 열기">
+          <MaterialIcons name="settings" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.filterRow}>
-        {STATUS_FILTERS.map((label, index) => (
-          <View
-            key={label}
-            style={[styles.filterChip, index === 0 ? styles.filterChipActive : undefined]}>
-            <Text
-              style={[
-                styles.filterText,
-                index === 0 ? styles.filterTextActive : undefined
-              ]}>
-              {label}
-            </Text>
-          </View>
-        ))}
       </View>
 
       <FlatList
@@ -118,14 +260,16 @@ const ContactsScreen = ({navigation}) => {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No peers yet</Text>
-            <Text style={styles.emptyDesc}>Tap + to add a peer via QR and start secure chat.</Text>
+            <Text style={styles.emptyTitle}>연결된 친구가 없어요</Text>
+            <Text style={styles.emptyDesc}>아래 + 버튼으로 친구를 추가하고 안전한 대화를 시작해 보세요.</Text>
           </View>
         }
         renderItem={({item}) => {
-          const meta = stateMeta(item.connectionState);
+          const meta = stateMeta(item.connectionState, colors);
           return (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name} 채팅 열기`}
               style={({pressed}) => [styles.peerCard, pressed && styles.peerCardPressed]}
               onPress={() =>
                 navigation.navigate('Chat', {
@@ -164,196 +308,15 @@ const ContactsScreen = ({navigation}) => {
         }}
       />
 
-      <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('AddPeer')}>
-        <MaterialIcons name="add" size={28} color="#FFFFFF" />
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('AddPeer')}
+        accessibilityRole="button"
+        accessibilityLabel="친구 추가">
+        <MaterialIcons name="add" size={28} color={colors.onPrimary} />
       </TouchableOpacity>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    paddingTop: 56
-  },
-  header: {
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  title: {
-    color: COLORS.text,
-    fontSize: 28,
-    fontWeight: '800'
-  },
-  nodeRow: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 7
-  },
-  nodeText: {
-    color: COLORS.muted,
-    fontSize: 12
-  },
-  settingsBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface
-  },
-  filterRow: {
-    marginTop: 16,
-    marginBottom: 10,
-    paddingHorizontal: 20,
-    flexDirection: 'row'
-  },
-  filterChip: {
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    backgroundColor: COLORS.surface,
-    paddingHorizontal: 14,
-    paddingVertical: 8
-  },
-  filterChipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary
-  },
-  filterText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  filterTextActive: {
-    color: '#FFFFFF'
-  },
-  listContent: {
-    paddingHorizontal: 14,
-    paddingBottom: 92
-  },
-  emptyState: {
-    marginTop: 80,
-    alignItems: 'center'
-  },
-  emptyTitle: {
-    color: COLORS.text,
-    fontWeight: '800',
-    fontSize: 20
-  },
-  emptyDesc: {
-    marginTop: 8,
-    color: COLORS.muted,
-    textAlign: 'center',
-    maxWidth: 250
-  },
-  peerCard: {
-    marginBottom: 9,
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    backgroundColor: COLORS.surface,
-    flexDirection: 'row'
-  },
-  peerCardPressed: {
-    backgroundColor: COLORS.surfaceHover,
-    borderColor: COLORS.border
-  },
-  avatarWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: '#302E4A',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  avatarText: {
-    color: '#D6DCFF',
-    fontWeight: '800',
-    fontSize: 15
-  },
-  statusDot: {
-    position: 'absolute',
-    right: -1,
-    bottom: -1,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: COLORS.surface
-  },
-  peerMain: {
-    flex: 1,
-    marginLeft: 11
-  },
-  peerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  peerName: {
-    flex: 1,
-    color: COLORS.text,
-    fontWeight: '800',
-    fontSize: 16,
-    marginRight: 8
-  },
-  peerState: {
-    fontSize: 11,
-    fontWeight: '700'
-  },
-  peerBottom: {
-    marginTop: 5,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  lastText: {
-    flex: 1,
-    color: COLORS.muted,
-    fontSize: 13
-  },
-  unreadBadge: {
-    minWidth: 21,
-    height: 21,
-    borderRadius: 10.5,
-    paddingHorizontal: 6,
-    marginLeft: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary
-  },
-  unreadText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800'
-  },
-  peerId: {
-    marginTop: 5,
-    color: '#74809C',
-    fontSize: 11
-  },
-  fab: {
-    position: 'absolute',
-    right: 22,
-    bottom: 28,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary
-  },
-});
 
 export default ContactsScreen;

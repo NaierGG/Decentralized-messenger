@@ -2,12 +2,15 @@ import React from 'react';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import {AppProvider} from './src/context/AppContext';
+import {ThemeProvider} from './src/context/ThemeContext';
 
 const App = () => (
   <SafeAreaProvider>
-    <AppProvider>
-      <AppNavigator />
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <AppNavigator />
+      </AppProvider>
+    </ThemeProvider>
   </SafeAreaProvider>
 );
 

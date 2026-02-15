@@ -4,8 +4,17 @@ import {beforeEach, describe, expect, it} from 'vitest';
 import App from './App';
 
 describe('web app onboarding flow', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    if (typeof indexedDB === 'undefined') {
+      return;
+    }
+    await new Promise((resolve) => {
+      const request = indexedDB.deleteDatabase('veil_messenger_db');
+      request.onsuccess = () => resolve();
+      request.onerror = () => resolve();
+      request.onblocked = () => resolve();
+    });
   });
 
   it('renders onboarding first', () => {
@@ -13,18 +22,18 @@ describe('web app onboarding flow', () => {
     expect(screen.getByTestId('onboarding-screen')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', {
-        name: /Secure\s+P2P\s+Chat/i
+        name: /Secure\s+Local\s+Identity/i
       })
     ).toBeInTheDocument();
   });
 
   it('creates profile and moves to contacts', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/Who are you/i), {
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alice/i), {
       target: {value: 'Tester'}
     });
-    fireEvent.click(screen.getByRole('button', {name: /Create Profile & Start/i}));
+    fireEvent.click(screen.getByRole('button', {name: /Generate Identity/i}));
     expect(await screen.findByTestId('contacts-screen')).toBeInTheDocument();
-    expect(screen.getByText(/P2P Messenger/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: /Chats/i})).toBeInTheDocument();
   });
 });

@@ -13,15 +13,7 @@ import QRCode from 'react-native-qrcode-svg';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {useApp} from '../context/AppContext';
 import QRScanner from '../components/QRScanner';
-
-const COLORS = {
-  bg: '#111022',
-  surface: '#1C1B2E',
-  text: '#F8FAFC',
-  muted: '#A4ADC0',
-  primary: '#6764F2',
-  border: 'rgba(255,255,255,0.1)'
-};
+import {useTheme} from '../context/ThemeContext';
 
 const AddPeerScreen = ({route, navigation}) => {
   const prefillPeerId = route.params?.prefillPeerId || '';
@@ -34,6 +26,169 @@ const AddPeerScreen = ({route, navigation}) => {
   const [busy, setBusy] = useState(false);
 
   const {profile, addOrUpdatePeer, createOfferSignal, handleScannedSignal} = useApp();
+  const {colors, spacing, typography} = useTheme();
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: spacing.component.screenTop - 12
+        },
+        header: {
+          paddingHorizontal: spacing.sm,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        },
+        iconBtn: {
+          width: spacing.component.iconButtonMin,
+          height: spacing.component.iconButtonMin,
+          borderRadius: spacing.component.iconButtonMin / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        iconPlaceholder: {
+          width: spacing.component.iconButtonMin
+        },
+        headerTitle: {
+          ...typography.textStyle(typography.size.lg, typography.weight.bold),
+          color: colors.textPrimary
+        },
+        tabWrap: {
+          marginTop: spacing.sm,
+          marginHorizontal: spacing.sm,
+          borderRadius: 999,
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border,
+          flexDirection: 'row',
+          padding: spacing.xxs
+        },
+        tabBtn: {
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 999,
+          height: spacing.component.buttonHeight
+        },
+        tabBtnActive: {
+          backgroundColor: colors.primary
+        },
+        tabText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textSecondary
+        },
+        tabTextActive: {
+          color: colors.onPrimary
+        },
+        scroll: {
+          flex: 1
+        },
+        content: {
+          padding: spacing.sm,
+          paddingBottom: spacing.xl
+        },
+        card: {
+          borderRadius: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          padding: spacing.sm,
+          marginBottom: spacing.sm
+        },
+        sectionTitle: {
+          ...typography.textStyle(typography.size.md, typography.weight.bold),
+          color: colors.textPrimary
+        },
+        sectionDesc: {
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary,
+          marginTop: spacing.xxs,
+          marginBottom: spacing.sm
+        },
+        input: {
+          marginTop: spacing.xs,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          color: colors.textPrimary,
+          minHeight: spacing.component.inputHeight,
+          paddingHorizontal: spacing.sm
+        },
+        textArea: {
+          minHeight: 90,
+          paddingTop: spacing.xs,
+          textAlignVertical: 'top'
+        },
+        primaryBtn: {
+          marginTop: spacing.sm,
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.sm,
+          backgroundColor: colors.primary,
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        primaryBtnText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.bold),
+          color: colors.onPrimary
+        },
+        secondaryBtn: {
+          marginTop: spacing.xs,
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.sm,
+          borderWidth: 1,
+          borderColor: colors.primary,
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        secondaryBtnText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary
+        },
+        disabledBtn: {
+          opacity: 0.55
+        },
+        idPill: {
+          marginTop: spacing.sm,
+          borderRadius: spacing.sm,
+          backgroundColor: colors.surface02,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: 'center',
+          paddingVertical: spacing.xs + 2,
+          paddingHorizontal: spacing.sm
+        },
+        idPillText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.textPrimary,
+          fontFamily: typography.fontFamily.mono
+        },
+        qrPanel: {
+          marginTop: spacing.sm,
+          alignItems: 'center',
+          paddingVertical: spacing.sm,
+          borderRadius: spacing.sm,
+          backgroundColor: '#FFFFFF'
+        },
+        signalHelper: {
+          marginTop: spacing.sm,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary
+        },
+        signalText: {
+          marginTop: spacing.xs,
+          color: colors.textMuted,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.regular)
+        }
+      }),
+    [colors, spacing, typography]
+  );
 
   const myShortId = useMemo(() => {
     const id = profile?.id || '';
@@ -46,7 +201,7 @@ const AddPeerScreen = ({route, navigation}) => {
   const onGenerateOffer = async () => {
     const normalizedPeerId = peerId.trim();
     if (!normalizedPeerId) {
-      Alert.alert('Peer ID required', 'Enter peer ID before creating offer QR.');
+      Alert.alert('친구 고유 번호를 입력해 주세요', '코드를 만들려면 상대 ID가 필요해요.');
       return;
     }
 
@@ -54,14 +209,14 @@ const AddPeerScreen = ({route, navigation}) => {
       setBusy(true);
       addOrUpdatePeer({
         id: normalizedPeerId,
-        name: peerName.trim() || `Peer ${normalizedPeerId.slice(0, 6)}`
+        name: peerName.trim() || `친구 ${normalizedPeerId.slice(0, 6)}`
       });
       const created = await createOfferSignal(normalizedPeerId);
       setSignalText(created);
       setActiveTab('myid');
-      Alert.alert('Offer ready', 'Share this QR and get answer QR back from your peer.');
+      Alert.alert('연결 코드 생성 완료', '코드를 공유하고 상대 코드도 받아 연결해 주세요.');
     } catch (error) {
-      Alert.alert('Failed to create offer', error.message);
+      Alert.alert('코드 생성에 실패했어요. 다시 시도해 주세요', error.message);
     } finally {
       setBusy(false);
     }
@@ -76,14 +231,14 @@ const AddPeerScreen = ({route, navigation}) => {
         setSignalText(result.responseSignal);
         setPeerId(result.peerId);
         setActiveTab('myid');
-        Alert.alert('Answer created', 'Let offer owner scan your answer QR.');
+        Alert.alert('연결 코드가 준비됐어요', '상대가 이 코드를 스캔하면 연결이 완료됩니다.');
       } else {
         setPeerId(result.peerId);
-        Alert.alert('Connected', 'Answer applied. Peer connection is now available.');
+        Alert.alert('연결 완료', '이제 채팅을 시작할 수 있어요.');
         navigation.goBack();
       }
     } catch (error) {
-      Alert.alert('Invalid signal', error.message);
+      Alert.alert('코드를 확인해 주세요', error.message);
     } finally {
       setBusy(false);
       setScanEnabled(false);
@@ -93,36 +248,44 @@ const AddPeerScreen = ({route, navigation}) => {
   const onShareId = async () => {
     try {
       await Share.share({
-        message: `My P2P Messenger ID: ${profile?.id || ''}`
+        message: `내 Veil ID: ${profile?.id || ''}`
       });
     } catch (error) {
-      Alert.alert('Share failed', 'Unable to open share sheet.');
+      Alert.alert('공유 실패', '공유 창을 열 수 없어요.');
     }
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="close" size={24} color={COLORS.text} />
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기">
+          <MaterialIcons name="close" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Peer</Text>
+        <Text style={styles.headerTitle}>친구 추가</Text>
         <View style={styles.iconPlaceholder} />
       </View>
 
       <View style={styles.tabWrap}>
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'scan' && styles.tabBtnActive]}
-          onPress={() => setActiveTab('scan')}>
+          onPress={() => setActiveTab('scan')}
+          accessibilityRole="button"
+          accessibilityLabel="코드 스캔 탭 열기">
           <Text style={[styles.tabText, activeTab === 'scan' && styles.tabTextActive]}>
-            Scan QR
+            코드 스캔
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'myid' && styles.tabBtnActive]}
-          onPress={() => setActiveTab('myid')}>
+          onPress={() => setActiveTab('myid')}
+          accessibilityRole="button"
+          accessibilityLabel="내 코드 탭 열기">
           <Text style={[styles.tabText, activeTab === 'myid' && styles.tabTextActive]}>
-            My ID
+            내 코드
           </Text>
         </TouchableOpacity>
       </View>
@@ -131,17 +294,19 @@ const AddPeerScreen = ({route, navigation}) => {
         {activeTab === 'scan' ? (
           <>
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Scan or paste signal</Text>
+              <Text style={styles.sectionTitle}>받은 코드를 스캔하거나 붙여넣기</Text>
               <Text style={styles.sectionDesc}>
-                Scan offer/answer QR from your peer, or paste raw signal text.
+                친구가 보낸 QR 또는 텍스트 코드를 입력해 연결하세요.
               </Text>
 
               <TouchableOpacity
                 disabled={busy}
                 style={[styles.primaryBtn, busy && styles.disabledBtn]}
-                onPress={() => setScanEnabled((value) => !value)}>
+                onPress={() => setScanEnabled((value) => !value)}
+                accessibilityRole="button"
+                accessibilityLabel={scanEnabled ? '스캐너 중지' : '스캐너 시작'}>
                 <Text style={styles.primaryBtnText}>
-                  {scanEnabled ? 'Stop Scanner' : 'Start Scanner'}
+                  {scanEnabled ? '스캐너 중지' : '스캐너 시작'}
                 </Text>
               </TouchableOpacity>
 
@@ -150,10 +315,11 @@ const AddPeerScreen = ({route, navigation}) => {
               <TextInput
                 value={manualSignal}
                 onChangeText={setManualSignal}
-                placeholder="Paste offer/answer signal text"
-                placeholderTextColor={COLORS.muted}
+                placeholder="받은 코드 붙여넣기"
+                placeholderTextColor={colors.textMuted}
                 multiline
                 style={[styles.input, styles.textArea]}
+                accessibilityLabel="받은 코드 입력"
               />
 
               <TouchableOpacity
@@ -162,41 +328,47 @@ const AddPeerScreen = ({route, navigation}) => {
                   styles.secondaryBtn,
                   (!manualSignal.trim() || busy) && styles.disabledBtn
                 ]}
-                onPress={() => processSignal(manualSignal)}>
-                <Text style={styles.secondaryBtnText}>Process Pasted Signal</Text>
+                onPress={() => processSignal(manualSignal)}
+                accessibilityRole="button"
+                accessibilityLabel="연결하기">
+                <Text style={styles.secondaryBtnText}>연결하기</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Create offer for target peer</Text>
+              <Text style={styles.sectionTitle}>상대와 연결 코드 만들기</Text>
               <TextInput
                 value={peerId}
                 onChangeText={setPeerId}
-                placeholder="Target Peer ID"
-                placeholderTextColor={COLORS.muted}
+                placeholder="친구 고유 번호"
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
+                accessibilityLabel="친구 고유 번호"
               />
               <TextInput
                 value={peerName}
                 onChangeText={setPeerName}
-                placeholder="Peer name (optional)"
-                placeholderTextColor={COLORS.muted}
+                placeholder="친구 이름 (선택)"
+                placeholderTextColor={colors.textMuted}
                 style={styles.input}
+                accessibilityLabel="친구 이름"
               />
               <TouchableOpacity
                 disabled={busy}
                 style={[styles.primaryBtn, busy && styles.disabledBtn]}
-                onPress={onGenerateOffer}>
-                <Text style={styles.primaryBtnText}>Generate Offer QR</Text>
+                onPress={onGenerateOffer}
+                accessibilityRole="button"
+                accessibilityLabel="연결 코드 생성">
+                <Text style={styles.primaryBtnText}>연결 코드 생성</Text>
               </TouchableOpacity>
             </View>
           </>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>My Peer ID</Text>
-            <Text style={styles.sectionDesc}>Share this with trusted contacts to connect.</Text>
+            <Text style={styles.sectionTitle}>내 고유 번호</Text>
+            <Text style={styles.sectionDesc}>신뢰하는 친구에게만 공유해 주세요.</Text>
             <View style={styles.idPill}>
               <Text style={styles.idPillText}>{myShortId}</Text>
             </View>
@@ -204,28 +376,28 @@ const AddPeerScreen = ({route, navigation}) => {
             <View style={styles.qrPanel}>
               <QRCode
                 size={210}
-                value={signalText || profile?.id || 'p2p-messenger-profile-id-unavailable'}
+                value={signalText || profile?.id || 'veil-profile-id-unavailable'}
               />
             </View>
 
-            <TouchableOpacity style={styles.primaryBtn} onPress={onShareId}>
-              <Text style={styles.primaryBtnText}>Share ID</Text>
+            <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={onShareId}
+              accessibilityRole="button"
+              accessibilityLabel="내 ID 공유">
+              <Text style={styles.primaryBtnText}>내 ID 공유</Text>
             </TouchableOpacity>
 
             {signalText ? (
               <>
-                <Text style={[styles.sectionTitle, {marginTop: 14}]}>Pending Signal QR</Text>
-                <Text style={styles.signalHelper}>
-                  This QR contains offer/answer payload. Let your peer scan it now.
-                </Text>
+                <Text style={[styles.sectionTitle, {marginTop: spacing.sm}]}>대기 중인 연결 코드</Text>
+                <Text style={styles.signalHelper}>상대가 지금 이 코드를 스캔하면 연결됩니다.</Text>
                 <Text selectable style={styles.signalText}>
                   {signalText}
                 </Text>
               </>
             ) : (
-              <Text style={styles.signalHelper}>
-                Generate offer from Scan tab to create shareable signaling QR.
-              </Text>
+              <Text style={styles.signalHelper}>코드 스캔 탭에서 연결 코드를 먼저 생성해 주세요.</Text>
             )}
           </View>
         )}
@@ -233,163 +405,5 @@ const AddPeerScreen = ({route, navigation}) => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    paddingTop: 52
-  },
-  header: {
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface
-  },
-  iconPlaceholder: {
-    width: 38
-  },
-  headerTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '800'
-  },
-  tabWrap: {
-    marginTop: 14,
-    marginHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    flexDirection: 'row',
-    padding: 4
-  },
-  tabBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    height: 38
-  },
-  tabBtnActive: {
-    backgroundColor: COLORS.primary
-  },
-  tabText: {
-    color: COLORS.muted,
-    fontWeight: '700'
-  },
-  tabTextActive: {
-    color: '#FFFFFF'
-  },
-  scroll: {
-    flex: 1
-  },
-  content: {
-    padding: 14,
-    paddingBottom: 28
-  },
-  card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-    padding: 14,
-    marginBottom: 12
-  },
-  sectionTitle: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '800'
-  },
-  sectionDesc: {
-    color: COLORS.muted,
-    marginTop: 4,
-    marginBottom: 10,
-    lineHeight: 19
-  },
-  input: {
-    marginTop: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    color: COLORS.text,
-    minHeight: 46,
-    paddingHorizontal: 12
-  },
-  textArea: {
-    minHeight: 90,
-    paddingTop: 10,
-    textAlignVertical: 'top'
-  },
-  primaryBtn: {
-    marginTop: 12,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '800'
-  },
-  secondaryBtn: {
-    marginTop: 10,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  secondaryBtnText: {
-    color: '#C9CCFF',
-    fontWeight: '700'
-  },
-  disabledBtn: {
-    opacity: 0.55
-  },
-  idPill: {
-    marginTop: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12
-  },
-  idPillText: {
-    color: '#D8DEFF',
-    fontWeight: '700'
-  },
-  qrPanel: {
-    marginTop: 14,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF'
-  },
-  signalHelper: {
-    marginTop: 12,
-    color: COLORS.muted,
-    lineHeight: 18
-  },
-  signalText: {
-    marginTop: 8,
-    color: '#B8C0D4',
-    fontSize: 11,
-    lineHeight: 15
-  }
-});
 
 export default AddPeerScreen;

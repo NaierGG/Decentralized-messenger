@@ -1,6 +1,7 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -16,19 +17,15 @@ import {useApp} from '../context/AppContext';
 import ConnectionStatus from '../components/ConnectionStatus';
 import MessageBubble from '../components/MessageBubble';
 import {CONNECTION_STATES} from '../utils/constants';
-
-const COLORS = {
-  bg: '#111022',
-  surface: '#1C1B2E',
-  text: '#F8FAFC',
-  muted: '#9CA3AF',
-  primary: '#6764F2',
-  border: 'rgba(255,255,255,0.08)'
-};
+import {useTheme} from '../context/ThemeContext';
 
 const ChatScreen = ({route, navigation}) => {
   const peerId = route.params?.peerId;
   const [text, setText] = useState('');
+  const [showEncryptedBanner, setShowEncryptedBanner] = useState(true);
+  const [reconnectExpanded, setReconnectExpanded] = useState(false);
+  const bannerOpacity = useRef(new Animated.Value(1)).current;
+
   const {
     getPeerById,
     getMessagesForPeer,
@@ -39,6 +36,156 @@ const ChatScreen = ({route, navigation}) => {
     setActiveChatPeerId,
     refreshReconnectSignal
   } = useApp();
+
+  const {colors, spacing, typography} = useTheme();
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: spacing.component.screenTop - 12
+        },
+        header: {
+          paddingHorizontal: spacing.sm,
+          paddingBottom: spacing.xs,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        iconBtn: {
+          width: spacing.component.iconButtonMin,
+          height: spacing.component.iconButtonMin,
+          borderRadius: spacing.component.iconButtonMin / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        headerMain: {
+          flex: 1,
+          marginLeft: spacing.xs + 2
+        },
+        peerName: {
+          ...typography.textStyle(typography.size.md, typography.weight.bold),
+          color: colors.textPrimary,
+          marginBottom: spacing.xxs
+        },
+        encryptedBanner: {
+          marginTop: spacing.xs,
+          marginHorizontal: spacing.lg,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface02,
+          paddingVertical: spacing.xs - 2,
+          alignItems: 'center'
+        },
+        encryptedRow: {
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        encryptedText: {
+          marginLeft: spacing.xxs,
+          ...typography.textStyle(typography.size.xs - 1, typography.weight.semibold),
+          color: colors.textSecondary
+        },
+        messageList: {
+          paddingHorizontal: spacing.sm,
+          paddingTop: spacing.md,
+          paddingBottom: spacing.xs
+        },
+        reconnectCard: {
+          marginHorizontal: spacing.sm,
+          marginBottom: spacing.xs,
+          borderRadius: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface01,
+          overflow: 'hidden'
+        },
+        reconnectHeader: {
+          minHeight: 60,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        },
+        reconnectHeaderText: {
+          flex: 1,
+          ...typography.textStyle(typography.size.sm, typography.weight.semibold),
+          color: colors.warning
+        },
+        reconnectBody: {
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          padding: spacing.md
+        },
+        reconnectText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          color: colors.textSecondary,
+          marginBottom: spacing.sm
+        },
+        reconnectButton: {
+          borderRadius: spacing.sm,
+          height: spacing.component.buttonHeight,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.primary
+        },
+        reconnectButtonText: {
+          ...typography.textStyle(typography.size.sm, typography.weight.bold),
+          color: colors.onPrimary
+        },
+        reconnectQrBox: {
+          marginTop: spacing.sm,
+          alignItems: 'center',
+          backgroundColor: '#FFFFFF',
+          borderRadius: spacing.sm,
+          paddingVertical: spacing.sm
+        },
+        inputBar: {
+          flexDirection: 'row',
+          alignItems: 'flex-end',
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.sm,
+          borderTopWidth: 1,
+          borderTopColor: colors.border
+        },
+        inputWrap: {
+          flex: 1,
+          marginRight: spacing.xs,
+          minHeight: spacing.component.inputHeight,
+          maxHeight: 120,
+          borderRadius: 22,
+          backgroundColor: colors.surface01,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs - 2,
+          justifyContent: 'center'
+        },
+        input: {
+          color: colors.textPrimary,
+          ...typography.textStyle(typography.size.sm, typography.weight.regular),
+          paddingVertical: spacing.xxs,
+          maxHeight: 108
+        },
+        sendBtn: {
+          width: spacing.component.buttonHeight,
+          height: spacing.component.buttonHeight,
+          borderRadius: spacing.component.buttonHeight / 2,
+          backgroundColor: colors.primary,
+          alignItems: 'center',
+          justifyContent: 'center'
+        }
+      }),
+    [colors, spacing, typography]
+  );
 
   const peer = getPeerById(peerId);
   const connectionState = getPeerConnectionState(peerId);
@@ -53,6 +200,27 @@ const ChatScreen = ({route, navigation}) => {
     };
   }, [markPeerRead, peerId, setActiveChatPeerId]);
 
+  useEffect(() => {
+    setShowEncryptedBanner(true);
+    bannerOpacity.setValue(1);
+
+    const timer = setTimeout(() => {
+      Animated.timing(bannerOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true
+      }).start(() => setShowEncryptedBanner(false));
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [bannerOpacity, peerId]);
+
+  useEffect(() => {
+    if (connectionState === CONNECTION_STATES.CONNECTED) {
+      setReconnectExpanded(false);
+    }
+  }, [connectionState]);
+
   const onSend = async () => {
     if (!text.trim()) {
       return;
@@ -63,7 +231,7 @@ const ChatScreen = ({route, navigation}) => {
     try {
       await sendMessageToPeer(peerId, message);
     } catch (error) {
-      Alert.alert('Send failed', error.message);
+      Alert.alert('메시지를 보낼 수 없어요', error.message);
     }
   };
 
@@ -71,7 +239,7 @@ const ChatScreen = ({route, navigation}) => {
     try {
       await refreshReconnectSignal(peerId);
     } catch (error) {
-      Alert.alert('Reconnect failed', error.message);
+      Alert.alert('재연결 코드 생성 실패', error.message);
     }
   };
 
@@ -80,31 +248,29 @@ const ChatScreen = ({route, navigation}) => {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="chevron-left" size={24} color={COLORS.text} />
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기">
+          <MaterialIcons name="chevron-left" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerMain}>
           <Text numberOfLines={1} style={styles.peerName}>
-            {peer?.name || 'Unknown peer'}
+            {peer?.name || '알 수 없는 친구'}
           </Text>
           <ConnectionStatus state={connectionState} />
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconBtnSmall}>
-            <MaterialIcons name="call" size={16} color={COLORS.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtnSmall}>
-            <MaterialIcons name="videocam" size={16} color={COLORS.primary} />
-          </TouchableOpacity>
-        </View>
       </View>
 
-      <View style={styles.encryptedBanner}>
-        <View style={styles.encryptedRow}>
-          <MaterialIcons name="lock" size={12} color="#C9CCFF" />
-          <Text style={styles.encryptedText}>Messages secured by end-to-end encryption</Text>
-        </View>
-      </View>
+      {showEncryptedBanner ? (
+        <Animated.View style={[styles.encryptedBanner, {opacity: bannerOpacity}]}>
+          <View style={styles.encryptedRow}>
+            <MaterialIcons name="lock" size={12} color={colors.textSecondary} />
+            <Text style={styles.encryptedText}>대화는 종단간 암호화로 보호돼요</Text>
+          </View>
+        </Animated.View>
+      ) : null}
 
       <FlatList
         data={messages}
@@ -116,194 +282,64 @@ const ChatScreen = ({route, navigation}) => {
 
       {connectionState !== CONNECTION_STATES.CONNECTED ? (
         <View style={styles.reconnectCard}>
-          <Text style={styles.reconnectTitle}>Connection dropped</Text>
-          <Text style={styles.reconnectText}>
-            Generate and share reconnect QR to restore direct P2P channel.
-          </Text>
-          <TouchableOpacity style={styles.reconnectButton} onPress={onCreateReconnectSignal}>
-            <Text style={styles.reconnectButtonText}>Generate Reconnect QR</Text>
+          <TouchableOpacity
+            style={styles.reconnectHeader}
+            onPress={() => setReconnectExpanded((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={reconnectExpanded ? '재연결 카드 접기' : '재연결 카드 펼치기'}>
+            <Text style={styles.reconnectHeaderText}>연결이 끊겼어요. 재연결 코드를 확인해 주세요.</Text>
+            <MaterialIcons
+              name={reconnectExpanded ? 'expand-less' : 'expand-more'}
+              size={24}
+              color={colors.textSecondary}
+            />
           </TouchableOpacity>
-          {reconnectSignal ? (
-            <View style={styles.reconnectQrBox}>
-              <QRCode value={reconnectSignal} size={136} />
+
+          {reconnectExpanded ? (
+            <View style={styles.reconnectBody}>
+              <Text style={styles.reconnectText}>
+                재연결 코드를 생성한 뒤 상대가 스캔하면 P2P 채널을 다시 열 수 있어요.
+              </Text>
+              <TouchableOpacity
+                style={styles.reconnectButton}
+                onPress={onCreateReconnectSignal}
+                accessibilityRole="button"
+                accessibilityLabel="재연결 코드 생성">
+                <Text style={styles.reconnectButtonText}>재연결 코드 생성</Text>
+              </TouchableOpacity>
+              {reconnectSignal ? (
+                <View style={styles.reconnectQrBox}>
+                  <QRCode value={reconnectSignal} size={136} />
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
       ) : null}
 
       <View style={styles.inputBar}>
-        <TouchableOpacity style={styles.attachBtn}>
-          <MaterialIcons name="add" size={24} color={COLORS.text} />
-        </TouchableOpacity>
         <View style={styles.inputWrap}>
           <TextInput
             value={text}
             onChangeText={setText}
-            placeholder="Message..."
-            placeholderTextColor={COLORS.muted}
+            placeholder="메시지를 입력하세요"
+            placeholderTextColor={colors.textMuted}
             style={styles.input}
             multiline
             maxLength={2000}
+            accessibilityLabel="메시지 입력"
           />
-          <TouchableOpacity>
-            <MaterialIcons name="sentiment-satisfied-alt" size={18} color={COLORS.muted} />
-          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.sendBtn} onPress={onSend}>
-          <MaterialIcons name="send" size={16} color="#FFFFFF" />
+        <TouchableOpacity
+          style={styles.sendBtn}
+          onPress={onSend}
+          accessibilityRole="button"
+          accessibilityLabel="메시지 전송">
+          <MaterialIcons name="send" size={18} color={colors.onPrimary} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    paddingTop: 52
-  },
-  header: {
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.surface
-  },
-  headerMain: {
-    flex: 1,
-    marginLeft: 10
-  },
-  peerName: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 2
-  },
-  headerActions: {
-    flexDirection: 'row'
-  },
-  iconBtnSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 6,
-    backgroundColor: COLORS.surface
-  },
-  encryptedBanner: {
-    marginTop: 10,
-    marginHorizontal: 24,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(103,100,242,0.25)',
-    backgroundColor: 'rgba(103,100,242,0.12)',
-    paddingVertical: 6,
-    alignItems: 'center'
-  },
-  encryptedRow: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  encryptedText: {
-    marginLeft: 4,
-    color: '#C9CCFF',
-    fontSize: 11,
-    fontWeight: '600'
-  },
-  messageList: {
-    paddingHorizontal: 12,
-    paddingTop: 16,
-    paddingBottom: 10
-  },
-  reconnectCard: {
-    marginHorizontal: 12,
-    marginBottom: 10,
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface
-  },
-  reconnectTitle: {
-    color: '#FCD34D',
-    fontWeight: '700',
-    marginBottom: 4
-  },
-  reconnectText: {
-    color: COLORS.muted,
-    marginBottom: 10,
-    lineHeight: 18
-  },
-  reconnectButton: {
-    borderRadius: 12,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary
-  },
-  reconnectButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '800'
-  },
-  reconnectQrBox: {
-    marginTop: 12,
-    alignItems: 'center'
-  },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border
-  },
-  attachBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: COLORS.surface,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  inputWrap: {
-    flex: 1,
-    marginHorizontal: 8,
-    minHeight: 42,
-    maxHeight: 120,
-    borderRadius: 22,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-end'
-  },
-  input: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 14,
-    paddingVertical: 4
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-});
 
 export default ChatScreen;

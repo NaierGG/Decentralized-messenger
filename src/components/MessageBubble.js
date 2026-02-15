@@ -1,33 +1,88 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import {MESSAGE_STATUS} from '../utils/constants';
+import {useTheme} from '../context/ThemeContext';
 
-const COLORS = {
-  incoming: '#1E1C3A',
-  outgoing: '#6764F2',
-  incomingText: '#E2E8F0',
-  outgoingText: '#FFFFFF',
-  muted: '#97A2B8'
-};
-
-const statusIcon = (status) => {
+const StatusIcon = ({status, color}) => {
   if (status === MESSAGE_STATUS.READ) {
-    return 'vv';
+    return <MaterialIcons name="done-all" size={12} color={color} />;
   }
   if (status === MESSAGE_STATUS.SENT) {
-    return 'v';
+    return <MaterialIcons name="check" size={12} color={color} />;
   }
   if (status === MESSAGE_STATUS.SENDING) {
-    return '...';
+    return <MaterialIcons name="schedule" size={12} color={color} />;
   }
   if (status === MESSAGE_STATUS.FAILED) {
-    return '!';
+    return <MaterialIcons name="error-outline" size={12} color={color} />;
   }
-  return '';
+  return null;
 };
 
 const MessageBubble = ({message}) => {
+  const {colors, typography, spacing} = useTheme();
   const isOutgoing = message.direction === 'outgoing';
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        row: {
+          maxWidth: '86%',
+          marginBottom: spacing.sm + 2
+        },
+        rowOutgoing: {
+          alignSelf: 'flex-end',
+          alignItems: 'flex-end'
+        },
+        rowIncoming: {
+          alignSelf: 'flex-start',
+          alignItems: 'flex-start'
+        },
+        bubble: {
+          borderRadius: 19,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.xs + 2
+        },
+        bubbleOutgoing: {
+          backgroundColor: colors.primary,
+          borderTopRightRadius: 7
+        },
+        bubbleIncoming: {
+          backgroundColor: colors.surface01,
+          borderTopLeftRadius: 7,
+          borderWidth: 1,
+          borderColor: colors.border
+        },
+        text: {
+          ...typography.textStyle(typography.size.sm, typography.weight.regular)
+        },
+        textOutgoing: {
+          color: colors.onPrimary
+        },
+        textIncoming: {
+          color: colors.textPrimary
+        },
+        metaRow: {
+          marginTop: spacing.xxs,
+          flexDirection: 'row',
+          alignItems: 'center'
+        },
+        metaRowOutgoing: {
+          justifyContent: 'flex-end'
+        },
+        metaRowIncoming: {
+          justifyContent: 'flex-start'
+        },
+        metaText: {
+          marginHorizontal: 2,
+          ...typography.textStyle(typography.size.xs - 2, typography.weight.semibold),
+          color: colors.textMuted
+        }
+      }),
+    [colors, spacing, typography]
+  );
+
   return (
     <View style={[styles.row, isOutgoing ? styles.rowOutgoing : styles.rowIncoming]}>
       <View
@@ -47,65 +102,10 @@ const MessageBubble = ({message}) => {
             minute: '2-digit'
           })}
         </Text>
-        {isOutgoing ? <Text style={styles.metaText}>{statusIcon(message.status)}</Text> : null}
+        {isOutgoing ? <StatusIcon status={message.status} color={colors.textMuted} /> : null}
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  row: {
-    maxWidth: '86%',
-    marginBottom: 14
-  },
-  rowOutgoing: {
-    alignSelf: 'flex-end',
-    alignItems: 'flex-end'
-  },
-  rowIncoming: {
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start'
-  },
-  bubble: {
-    borderRadius: 19,
-    paddingHorizontal: 13,
-    paddingVertical: 10
-  },
-  bubbleOutgoing: {
-    backgroundColor: COLORS.outgoing,
-    borderTopRightRadius: 7
-  },
-  bubbleIncoming: {
-    backgroundColor: COLORS.incoming,
-    borderTopLeftRadius: 7
-  },
-  text: {
-    fontSize: 14,
-    lineHeight: 20
-  },
-  textOutgoing: {
-    color: COLORS.outgoingText
-  },
-  textIncoming: {
-    color: COLORS.incomingText
-  },
-  metaRow: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  metaRowOutgoing: {
-    justifyContent: 'flex-end'
-  },
-  metaRowIncoming: {
-    justifyContent: 'flex-start'
-  },
-  metaText: {
-    marginHorizontal: 2,
-    color: COLORS.muted,
-    fontSize: 10,
-    fontWeight: '600'
-  }
-});
 
 export default MessageBubble;
